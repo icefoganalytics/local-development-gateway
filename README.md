@@ -11,14 +11,16 @@ Without a gateway, two projects commonly both try to publish a web service on po
 With this gateway running, a project can publish its internal web service through a generated hostname instead:
 
 ```text
-http://stack-35053.traditional-knowledge.localhost
-                 |
-                 v
+http://port-35053.traditional-knowledge.localhost
+                         |
+                         v
 Local Development Gateway on 127.0.0.1:80
-                 |
-                 v
-Traditional Knowledge web container on port 8080
+                         |
+                         v
+Traditional Knowledge web container on internal port 8080
 ```
+
+`port-35053` is derived from Traditional Knowledge's generated `WEB_PORT` value. It identifies the project instance; the browser reaches the web service through the gateway on port `80`, not directly on port `35053`.
 
 The generated hostname is a local `*.localhost` name. It resolves to loopback and does not require a public domain, external DNS provider, or internet-facing listener.
 
@@ -56,13 +58,14 @@ Port `80` on `127.0.0.1` must be free before starting. The gateway never binds t
 ## Use case: Traditional Knowledge beside WRAP
 
 1. Start this gateway once.
-2. Run `dev up` in Traditional Knowledge. It detects the running gateway, generates descriptive ports and a `TRADITIONAL_KNOWLEDGE_WEB_HOSTNAME`, and adds route labels to its web container.
-3. Open the generated hostname from `.dev-ports.env`.
-4. When WRAP adopts the same contract, start it normally. It can then use its own generated route labels and hostname through this same gateway.
+2. Run `dev up` in Traditional Knowledge. It writes role-based generated values to `.dev-ports.env`, including `WEB_PORT`, `BACKEND_PORT`, and `WEB_HOSTNAME=port-<WEB_PORT>.traditional-knowledge.localhost`.
+3. With the gateway running, Traditional Knowledge's web container joins `local-gateway`, its direct web publishing is removed, and the generated hostname routes through the gateway on `127.0.0.1:80`.
+4. Open `WEB_HOSTNAME` from `.dev-ports.env`.
+5. When WRAP adopts the same contract, start it normally. It can then use its own generated route labels and hostname through this same gateway.
 
-Each project receives an independent hostname, while the gateway owns the single browser port.
+Each project receives an independent hostname, while the gateway owns the single browser port. The generated `WEB_PORT` is an identity seed in gateway mode, not the browser-facing port.
 
-If this gateway is unavailable, Traditional Knowledge deliberately falls back to its original localhost ports, including web port `8080` and backend port `3000`. That fallback may conflict with another project; start the gateway when concurrent development is needed.
+Without the gateway, Traditional Knowledge publishes the same generated values directly, including `localhost:<WEB_PORT>` for the web service and `localhost:<BACKEND_PORT>` for the backend. `dev up` regenerates unavailable assignments; deleting `.dev-ports.env` forces a fresh assignment.
 
 ## Contract for participating projects
 
@@ -73,7 +76,15 @@ The gateway:
 - discovers only services explicitly labelled for routing;
 - has the Docker label `local-gateway=true` so a project can detect it.
 
-A participating web service joins `local-gateway` and supplies explicit route labels:
+A participating project writes role-based generated values to its local `.dev-ports.env`:
+
+```dotenv
+WEB_PORT=35053
+BACKEND_PORT=38261
+WEB_HOSTNAME=port-35053.traditional-knowledge.localhost
+```
+
+With the gateway available, its web service joins `local-gateway` and supplies explicit route labels. Use a project-prefixed identifier containing the published `BACKEND_PORT` for the internal router/service name; do not generate a separate `STACK_IDENTIFIER`:
 
 ```yaml
 services:
@@ -84,10 +95,10 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=local-gateway"
-      - "traefik.http.routers.<stack-identifier>.rule=Host(`<generated-hostname>.localhost`)"
-      - "traefik.http.routers.<stack-identifier>.entrypoints=web"
-      - "traefik.http.routers.<stack-identifier>.service=<stack-identifier>"
-      - "traefik.http.services.<stack-identifier>.loadbalancer.server.port=8080"
+      - "traefik.http.routers.<project>-<backend-port>.rule=Host(`<web-hostname>`)"
+      - "traefik.http.routers.<project>-<backend-port>.entrypoints=web"
+      - "traefik.http.routers.<project>-<backend-port>.service=<project>-<backend-port>"
+      - "traefik.http.services.<project>-<backend-port>.loadbalancer.server.port=8080"
 
 networks:
   local-gateway:
@@ -95,7 +106,19 @@ networks:
     name: local-gateway
 ```
 
-Use a unique stack identifier for every running project instance. Never derive a destination port from the hostname; each route must name one explicit Docker service and internal port.
+Without the gateway, publish the same generated values directly:
+
+```yaml
+services:
+  web:
+    ports:
+      - "127.0.0.1:${WEB_PORT}:8080"
+  backend:
+    ports:
+      - "127.0.0.1:${BACKEND_PORT}:3000"
+```
+
+Use a unique generated `WEB_PORT` and `BACKEND_PORT` for every running project instance. Never derive a destination port from the hostname; each route must name one explicit Docker service and internal port.
 
 ## Authentication callbacks
 
