@@ -1,0 +1,29 @@
+#!/usr/bin/env ruby
+
+ALIASES = {
+  "up" => %w[up -d --remove-orphans],
+  "down" => %w[down --remove-orphans],
+  "logs" => %w[logs --follow],
+  "status" => %w[ps]
+}.freeze
+
+if ARGV.empty? || ARGV.first == "help"
+  puts <<~USAGE
+    Usage: bin/dev COMMAND [OPTIONS]
+
+    Commands:
+      up       Start the gateway in the background
+      down     Stop the gateway and remove orphan containers
+      logs     Follow gateway logs
+      status   Show gateway status
+
+    Any other arguments are passed directly to docker compose.
+  USAGE
+  exit
+end
+
+Dir.chdir(File.expand_path("..", __dir__))
+
+command = ARGV.shift
+compose_args = ALIASES.fetch(command, [command]) + ARGV
+exec("docker", "compose", *compose_args)

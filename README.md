@@ -24,21 +24,33 @@ The generated hostname is a local `*.localhost` name. It resolves to loopback an
 
 ## Start once per day
 
+Use the small repository wrapper for the common lifecycle commands:
+
 ```sh
-docker compose up -d
+bin/dev up
 ```
 
 Check the gateway:
 
 ```sh
-docker compose ps
+bin/dev status
+```
+
+Follow its logs:
+
+```sh
+bin/dev logs
 ```
 
 Stop it only when no participating local project needs it:
 
 ```sh
-docker compose down
+bin/dev down
 ```
+
+The wrapper also passes unrecognized arguments directly to `docker compose`, so
+`bin/dev config` and `bin/dev up --force-recreate` remain available.
+
 Port `80` on `127.0.0.1` must be free before starting. The gateway never binds to a non-loopback address.
 
 ## Use case: Traditional Knowledge beside WRAP
