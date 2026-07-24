@@ -58,14 +58,14 @@ Port `80` on `127.0.0.1` must be free before starting. The gateway never binds t
 ## Use case: Traditional Knowledge beside WRAP
 
 1. Start this gateway once.
-2. Run `dev up` in Traditional Knowledge. It writes role-based generated values to `.dev-ports.env`, including `WEB_PORT`, `BACKEND_PORT`, and `WEB_HOSTNAME=port-<WEB_PORT>.traditional-knowledge.localhost`.
+2. Run `dev up` in Traditional Knowledge. It writes role-based generated values to `.env.development.local`, including `WEB_PORT`, `BACKEND_PORT`, and `WEB_HOSTNAME=port-<WEB_PORT>.traditional-knowledge.localhost`.
 3. With the gateway running, Traditional Knowledge's web container joins `local-gateway`, its direct web publishing is removed, and the generated hostname routes through the gateway on `127.0.0.1:80`.
-4. Open `WEB_HOSTNAME` from `.dev-ports.env`.
+4. Open `WEB_HOSTNAME` from `.env.development.local`.
 5. When WRAP adopts the same contract, start it normally. It can then use its own generated route labels and hostname through this same gateway.
 
 Each project receives an independent hostname, while the gateway owns the single browser port. The generated `WEB_PORT` is an identity seed in gateway mode, not the browser-facing port.
 
-Without the gateway, Traditional Knowledge publishes the same generated values directly, including `localhost:<WEB_PORT>` for the web service and `localhost:<BACKEND_PORT>` for the backend. `dev up` regenerates unavailable assignments; deleting `.dev-ports.env` forces a fresh assignment.
+Without the gateway, Traditional Knowledge publishes the same generated values directly, including `localhost:<WEB_PORT>` for the web service and `localhost:<BACKEND_PORT>` for the backend. `dev up` regenerates unavailable assignments; deleting `.env.development.local` forces a fresh assignment.
 
 ## Contract for participating projects
 
@@ -76,7 +76,7 @@ The gateway:
 - discovers only services explicitly labelled for routing;
 - has the Docker label `local-gateway=true` so a project can detect it.
 
-A participating project writes role-based generated values to its local `.dev-ports.env`:
+A participating project writes role-based generated values to its local `.env.development.local`:
 
 ```dotenv
 WEB_PORT=35053
