@@ -1,0 +1,47 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    haml (7.2.1)
+      temple (>= 0.8.2)
+      thor
+      tilt
+    language_server-protocol (3.17.0.6)
+    logger (1.7.0)
+    prettier_print (1.2.1)
+    prism (1.9.0)
+    rbs (4.1.0)
+      logger
+      prism (>= 1.6.0)
+      tsort
+    ruby-lsp (0.26.9)
+      language_server-protocol (~> 3.17.0)
+      prism (>= 1.2, < 2.0)
+      rbs (>= 3, < 5)
+    syntax_tree (6.3.0)
+      prettier_print (>= 1.2.0)
+    syntax_tree-haml (4.0.3)
+      haml (>= 5.2)
+      prettier_print (>= 1.2.1)
+      syntax_tree (>= 6.0.0)
+    syntax_tree-rbs (1.0.0)
+      prettier_print
+      rbs
+      syntax_tree (>= 2.0.1)
+    temple (0.10.4)
+    thor (1.5.0)
+    tilt (2.8.0)
+    tsort (0.2.0)
+
+PLATFORMS
+  ruby
+  x86_64-linux
+
+DEPENDENCIES
+  prettier_print (= 1.2.1)
+  ruby-lsp (= 0.26.9)
+  syntax_tree (= 6.3.0)
+  syntax_tree-haml (= 4.0.3)
+  syntax_tree-rbs (= 1.0.0)
+
+BUNDLED WITH
+   2.5.22

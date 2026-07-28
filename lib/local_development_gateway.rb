@@ -12,7 +12,8 @@ module LocalDevelopmentGateway
   COMPOSE_FILE = File.join(ASSET_ROOT, "docker-compose.yml")
   TRAEFIK_CONFIG_FILE = File.join(ASSET_ROOT, "config", "traefik.yml")
 
-  class Error < StandardError; end
+  class Error < StandardError
+  end
 
   class DockerError < Error
     attr_reader :command, :output
@@ -29,7 +30,9 @@ module LocalDevelopmentGateway
       command = ["docker", *args]
       if capture
         stdout, stderr, status = Open3.capture3(*command)
-        raise DockerError.new(command, stderr.empty? ? stdout : stderr) unless status.success?
+        unless status.success?
+          raise DockerError.new(command, stderr.empty? ? stdout : stderr)
+        end
 
         stdout
       elsif system(*command)
@@ -41,7 +44,8 @@ module LocalDevelopmentGateway
   end
 
   class Client
-    CONTAINER_FORMAT = "{{.ID}}\t{{.Label \"com.docker.compose.project\"}}\t{{.Label \"com.docker.compose.service\"}}\t{{.Label \"local-gateway\"}}"
+    CONTAINER_FORMAT =
+      "{{.ID}}\t{{.Label \"com.docker.compose.project\"}}\t{{.Label \"com.docker.compose.service\"}}\t{{.Label \"local-gateway\"}}"
 
     def initialize(
       runner: Docker.new,
@@ -68,7 +72,10 @@ module LocalDevelopmentGateway
     alias start ensure_running
 
     def ready?
-      network_exists? && gateway_container_ids(status: "running").any? { |id| healthy_container?(id) }
+      network_exists? &&
+        gateway_container_ids(status: "running").any? do |id|
+          healthy_container?(id)
+        end
     end
 
     def status
@@ -90,10 +97,12 @@ module LocalDevelopmentGateway
     def compose(*args, capture: true)
       @runner.call(
         "compose",
-        "--project-name", PROJECT_NAME,
-        "--file", COMPOSE_FILE,
+        "--project-name",
+        PROJECT_NAME,
+        "--file",
+        COMPOSE_FILE,
         *args,
-        capture: capture,
+        capture: capture
       )
     end
 
@@ -102,21 +111,26 @@ module LocalDevelopmentGateway
     def wait_until_ready
       deadline = @clock.call + @timeout
       until ready?
-        raise Error, "Local Development Gateway did not become ready" if @clock.call >= deadline
+        if @clock.call >= deadline
+          raise Error, "Local Development Gateway did not become ready"
+        end
 
         @sleeper.call(@poll_interval)
       end
     end
 
     def network_exists?
-      labels = @runner.call(
-        "network",
-        "inspect",
-        NETWORK_NAME,
-        "--format",
-        "{{index .Labels \"com.docker.compose.project\"}}\t{{index .Labels \"com.docker.compose.network\"}}",
-      )
-      labels.lines.any? { |line| line.strip == "#{PROJECT_NAME}\t#{NETWORK_NAME}" }
+      labels =
+        @runner.call(
+          "network",
+          "inspect",
+          NETWORK_NAME,
+          "--format",
+          "{{index .Labels \"com.docker.compose.project\"}}\t{{index .Labels \"com.docker.compose.network\"}}"
+        )
+      labels.lines.any? do |line|
+        line.strip == "#{PROJECT_NAME}\t#{NETWORK_NAME}"
+      end
     rescue DockerError
       false
     end
@@ -128,30 +142,44 @@ module LocalDevelopmentGateway
     def gateway_container_ids(status: nil)
       args = ["ps"]
       args << "--all" unless status
-      args.concat([
-        "--filter", "network=#{NETWORK_NAME}",
-        "--filter", "label=com.docker.compose.project=#{PROJECT_NAME}",
-        "--filter", "label=com.docker.compose.service=#{SERVICE_NAME}",
-        "--filter", "label=#{GATEWAY_LABEL}=true",
-      ])
+      args.concat(
+        [
+          "--filter",
+          "network=#{NETWORK_NAME}",
+          "--filter",
+          "label=com.docker.compose.project=#{PROJECT_NAME}",
+          "--filter",
+          "label=com.docker.compose.service=#{SERVICE_NAME}",
+          "--filter",
+          "label=#{GATEWAY_LABEL}=true"
+        ]
+      )
       args.push("--filter", "status=#{status}") if status
       output = @runner.call(*args, "--quiet")
       output.lines.map(&:strip).reject(&:empty?)
     end
 
     def healthy_container?(id)
-      @runner.call("inspect", "--format", "{{.State.Health.Status}}", id).strip == "healthy"
+      @runner.call(
+        "inspect",
+        "--format",
+        "{{.State.Health.Status}}",
+        id
+      ).strip == "healthy"
     rescue DockerError
       false
     end
 
     def attached_containers
-      output = @runner.call(
-        "ps",
-        "--all",
-        "--filter", "network=#{NETWORK_NAME}",
-        "--format", CONTAINER_FORMAT,
-      )
+      output =
+        @runner.call(
+          "ps",
+          "--all",
+          "--filter",
+          "network=#{NETWORK_NAME}",
+          "--format",
+          CONTAINER_FORMAT
+        )
       output.lines.filter_map do |line|
         id, project, service, label = line.strip.split("\t", -1)
         next if id.nil? || id.empty?
@@ -161,15 +189,12 @@ module LocalDevelopmentGateway
     end
 
     def non_gateway_containers_attached?
-      attached_containers.any? do |container|
-        !gateway_container?(container)
-      end
+      attached_containers.any? { |container| !gateway_container?(container) }
     end
 
     def gateway_container?(container)
       container[:project] == PROJECT_NAME &&
-        container[:service] == SERVICE_NAME &&
-        container[:label] == "true"
+        container[:service] == SERVICE_NAME && container[:label] == "true"
     end
   end
 
@@ -200,7 +225,9 @@ module LocalDevelopmentGateway
 
     def run
       command = @argv.shift
-      return print_usage(0) if command.nil? || %w[help --help -h].include?(command)
+      if command.nil? || %w[help --help -h].include?(command)
+        return print_usage(0)
+      end
 
       case command
       when "up", "ensure"
@@ -235,8 +262,9 @@ module LocalDevelopmentGateway
     def report_stop(result)
       messages = {
         not_running: "Local Development Gateway is not running",
-        in_use: "Leaving Local Development Gateway running because another container is attached",
-        stopped: "Stopped Local Development Gateway",
+        in_use:
+          "Leaving Local Development Gateway running because another container is attached",
+        stopped: "Stopped Local Development Gateway"
       }
       @output.puts messages.fetch(result)
     end

@@ -11,7 +11,12 @@ class LocalDevelopmentGatewayTest < Minitest::Test
   class FakeRunner
     attr_reader :calls
 
-    def initialize(network_labels: "local-gateway\tlocal-gateway\n", gateway_ids: "gateway-id\n", health: "healthy\n", attached: "gateway-id\tlocal-gateway\tgateway\ttrue\n")
+    def initialize(
+      network_labels: "local-gateway\tlocal-gateway\n",
+      gateway_ids: "gateway-id\n",
+      health: "healthy\n",
+      attached: "gateway-id\tlocal-gateway\tgateway\ttrue\n"
+    )
       @network_labels = network_labels
       @gateway_ids = gateway_ids
       @health = health
@@ -23,7 +28,9 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       @calls << { args: args, capture: capture }
       case args.first
       when "network"
-        raise LocalDevelopmentGateway::DockerError.new(args, "missing") if @network_labels.nil?
+        if @network_labels.nil?
+          raise LocalDevelopmentGateway::DockerError.new(args, "missing")
+        end
 
         @network_labels
       when "ps"
@@ -38,9 +45,13 @@ class LocalDevelopmentGatewayTest < Minitest::Test
   end
 
   def test_assets_are_packaged_with_the_gem
-    spec = Gem::Specification.load(File.expand_path("../local-development-gateway.gemspec", __dir__))
+    spec =
+      Gem::Specification.load(
+        File.expand_path("../local-development-gateway.gemspec", __dir__)
+      )
     gem_path = File.join(Dir.mktmpdir, "local-development-gateway.gem")
-    _stdout, stderr, status = Open3.capture3("gem", "build", spec.loaded_from, "--output", gem_path)
+    _stdout, stderr, status =
+      Open3.capture3("gem", "build", spec.loaded_from, "--output", gem_path)
 
     assert status.success?, stderr
     assert_includes Gem::Package.new(gem_path).contents, "config/traefik.yml"
@@ -50,9 +61,16 @@ class LocalDevelopmentGatewayTest < Minitest::Test
   def test_installed_gem_resolves_packaged_asset_paths
     gem_path = build_gem
     gem_home = Dir.mktmpdir
-    _stdout, stderr, status = Open3.capture3(
-      "gem", "install", "--local", "--no-document", "--install-dir", gem_home, gem_path,
-    )
+    _stdout, stderr, status =
+      Open3.capture3(
+        "gem",
+        "install",
+        "--local",
+        "--no-document",
+        "--install-dir",
+        gem_home,
+        gem_path
+      )
     assert status.success?, stderr
     script = <<~RUBY
       require "local_development_gateway"
@@ -60,12 +78,13 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       puts LocalDevelopmentGateway::TRAEFIK_CONFIG_FILE
     RUBY
 
-    stdout, stderr, status = Open3.capture3(
-      { "GEM_HOME" => gem_home, "GEM_PATH" => gem_home },
-      RbConfig.ruby,
-      "-e",
-      script,
-    )
+    stdout, stderr, status =
+      Open3.capture3(
+        { "GEM_HOME" => gem_home, "GEM_PATH" => gem_home },
+        RbConfig.ruby,
+        "-e",
+        script
+      )
 
     assert status.success?, stderr
     compose_file, traefik_file = stdout.lines.map(&:strip)
@@ -107,12 +126,10 @@ class LocalDevelopmentGatewayTest < Minitest::Test
   end
 
   def test_preserves_gateway_when_an_unrelated_attached_container_exists
-    runner = FakeRunner.new(
-      attached: <<~CONTAINERS,
+    runner = FakeRunner.new(attached: <<~CONTAINERS)
         gateway-id\tlocal-gateway\tgateway\ttrue
         consumer-id\tconsumer-project\tweb\t
       CONTAINERS
-    )
 
     assert_equal :in_use, client(runner).stop_if_unused
     refute runner.calls.any? { |call| call[:args].include?("down") }
@@ -128,15 +145,23 @@ class LocalDevelopmentGatewayTest < Minitest::Test
   private
 
   def build_gem
-    spec = Gem::Specification.load(File.expand_path("../local-development-gateway.gemspec", __dir__))
+    spec =
+      Gem::Specification.load(
+        File.expand_path("../local-development-gateway.gemspec", __dir__)
+      )
     gem_path = File.join(Dir.mktmpdir, "local-development-gateway.gem")
-    _stdout, stderr, status = Open3.capture3("gem", "build", spec.loaded_from, "--output", gem_path)
+    _stdout, stderr, status =
+      Open3.capture3("gem", "build", spec.loaded_from, "--output", gem_path)
     raise stderr unless status.success?
 
     gem_path
   end
 
   def client(runner)
-    LocalDevelopmentGateway::Client.new(runner: runner, timeout: 1, sleeper: ->(_seconds) {})
+    LocalDevelopmentGateway::Client.new(
+      runner: runner,
+      timeout: 1,
+      sleeper: ->(_seconds) {}
+    )
   end
 end
