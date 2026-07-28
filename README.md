@@ -145,7 +145,7 @@ networks:
     name: local-gateway
 ```
 
-Use a project- and service-prefixed router/service identifier. Never derive a destination port from the hostname; each route must name one explicit Docker service and internal port.
+Use a project- and service-prefixed router/service identifier. Never derive a destination port from the hostname; each routed service must name one explicit internal destination port.
 
 Without the gateway, a participating project may use its own loopback port-publishing fallback. That fallback is project-specific and is not part of the shared gateway contract.
 
