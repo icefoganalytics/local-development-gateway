@@ -8,10 +8,11 @@ It lets several local projects use stable hostnames instead of competing for bro
 
 Without a gateway, two projects commonly both try to publish a web service on port `8080` and a backend service on port `3000`. Only one can start.
 
-With this gateway running, a project can publish its internal web service through a generated hostname instead:
+With this gateway running, a project routes its internal web service through a
+checkout-derived hostname instead:
 
 ```text
-http://port-35053.traditional-knowledge.localhost
+http://traditional-knowledge.localhost
                          |
                          v
 Local Development Gateway on 127.0.0.1:80
@@ -20,9 +21,13 @@ Local Development Gateway on 127.0.0.1:80
 Traditional Knowledge web container on internal port 8080
 ```
 
-`port-35053` is derived from Traditional Knowledge's generated `WEB_PORT` value. It identifies the project instance; the browser reaches the web service through the gateway on port `80`, not directly on port `35053`.
+The checkout folder identifies the project. A separately named worktree such as
+`issue-123` uses `http://issue-123.traditional-knowledge.localhost`; the browser
+reaches the web service through the gateway on port `80`, not a published
+application port.
 
-The generated hostname is a local `*.localhost` name. It resolves to loopback and does not require a public domain, external DNS provider, or internet-facing listener.
+These local `*.localhost` hostnames resolve to loopback and do not require a
+public domain, external DNS provider, or internet-facing listener.
 
 ## Start once per day
 
@@ -82,17 +87,33 @@ version declared by the gem. Upgrade the version constraint when a new
 compatible release is published. The repository's `bin/dev` is only a thin
 wrapper around this executable API.
 
+## Development checks
+
+Install the locked development tools with `bundle install`. Run the Ruby
+formatter check and tests with:
+
+```sh
+bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
+  Gemfile \
+  Rakefile \
+  lib/local_development_gateway.rb \
+  lib/local_development_gateway/version.rb \
+  bin/dev \
+  bin/local-development-gateway \
+  test/local_development_gateway_test.rb
+rake test
+```
+
 ## Use case: Traditional Knowledge beside WRAP
 
-1. Start this gateway once.
-2. Run `dev up` in Traditional Knowledge. It writes role-based generated values to `.env.development.local`, including `WEB_PORT`, `BACKEND_PORT`, and `WEB_HOSTNAME=port-<WEB_PORT>.traditional-knowledge.localhost`.
-3. With the gateway running, Traditional Knowledge's web container joins `local-gateway`, its direct web publishing is removed, and the generated hostname routes through the gateway on `127.0.0.1:80`.
-4. Open `WEB_HOSTNAME` from `.env.development.local`.
-5. When WRAP adopts the same contract, start it normally. It can then use its own generated route labels and hostname through this same gateway.
+1. Use the published gateway gem; it starts or reuses the shared gateway when Traditional Knowledge starts.
+2. Run `bundle install` in Traditional Knowledge so the published gateway gem is available.
+3. Run `dev up --watch` in Traditional Knowledge. The gateway is the browser entrypoint; the base checkout uses `http://traditional-knowledge.localhost`, with the API at `http://api.traditional-knowledge.localhost` and MailDev at `http://mail.traditional-knowledge.localhost`.
+4. A separately named checkout or worktree derives its own hostname, such as `http://issue-123.traditional-knowledge.localhost`. The API and MailDev hosts use the corresponding `api.` and `mail.` prefixes.
+5. Run `dev down` to stop the application services. It stops the shared gateway only when no other project is attached.
+6. When WRAP adopts the same contract, it can use its own checkout-derived hostnames through this shared gateway.
 
-Each project receives an independent hostname, while the gateway owns the single browser port. The generated `WEB_PORT` is an identity seed in gateway mode, not the browser-facing port.
-
-Without the gateway, Traditional Knowledge publishes the same generated values directly, including `localhost:<WEB_PORT>` for the web service and `localhost:<BACKEND_PORT>` for the backend. `dev up` regenerates unavailable assignments; deleting `.env.development.local` forces a fresh assignment.
+The gateway owns the single browser port on `127.0.0.1:80`. Participating projects keep service ports internal to Docker and route browser traffic with explicit Traefik labels.
 
 ## Contract for participating projects
 
@@ -103,15 +124,7 @@ The gateway:
 - discovers only services explicitly labelled for routing;
 - has the Docker label `local-gateway=true` so a project can detect it.
 
-A participating project writes role-based generated values to its local `.env.development.local`:
-
-```dotenv
-WEB_PORT=35053
-BACKEND_PORT=38261
-WEB_HOSTNAME=port-35053.traditional-knowledge.localhost
-```
-
-With the gateway available, its web service joins `local-gateway` and supplies explicit route labels. Use a project-prefixed identifier containing the published `BACKEND_PORT` for the internal router/service name; do not generate a separate `STACK_IDENTIFIER`:
+A participating project joins routed services to `local-gateway` and supplies a checkout-derived hostname plus explicit service labels:
 
 ```yaml
 services:
@@ -122,10 +135,9 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=local-gateway"
-      - "traefik.http.routers.<project>-<backend-port>.rule=Host(`<web-hostname>`)"
-      - "traefik.http.routers.<project>-<backend-port>.entrypoints=web"
-      - "traefik.http.routers.<project>-<backend-port>.service=<project>-<backend-port>"
-      - "traefik.http.services.<project>-<backend-port>.loadbalancer.server.port=8080"
+      - "traefik.http.routers.<compose-project>-web.rule=Host(`<web-hostname>`)"
+      - "traefik.http.routers.<compose-project>-web.entrypoints=web"
+      - "traefik.http.services.<compose-project>-web.loadbalancer.server.port=8080"
 
 networks:
   local-gateway:
@@ -133,19 +145,9 @@ networks:
     name: local-gateway
 ```
 
-Without the gateway, publish the same generated values directly:
+Use a project- and service-prefixed router/service identifier. Never derive a destination port from the hostname; each route must name one explicit Docker service and internal port.
 
-```yaml
-services:
-  web:
-    ports:
-      - "127.0.0.1:${WEB_PORT}:8080"
-  backend:
-    ports:
-      - "127.0.0.1:${BACKEND_PORT}:3000"
-```
-
-Use a unique generated `WEB_PORT` and `BACKEND_PORT` for every running project instance. Never derive a destination port from the hostname; each route must name one explicit Docker service and internal port.
+Without the gateway, a participating project may use its own loopback port-publishing fallback. That fallback is project-specific and is not part of the shared gateway contract.
 
 ## Authentication callbacks
 
