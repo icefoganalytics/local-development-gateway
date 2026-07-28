@@ -66,7 +66,7 @@ Consuming projects do not need a gateway checkout. Add the released gem to
 their bundle and pin the compatible minor version:
 
 ```ruby
-gem "local-development-gateway", "~> 0.1.0"
+gem "local-development-gateway", "~> 0.1"
 ```
 
 Published gem: [`local-development-gateway`](https://rubygems.org/gems/local-development-gateway)
@@ -83,9 +83,9 @@ bundle exec local-development-gateway down
 
 `local-development-gateway` uses the installed asset path, the
 `local-gateway` Compose project and network labels, and the pinned minimum Ruby
-version declared by the gem. Upgrade the version constraint when a new
-compatible release is published. The repository's `bin/dev` is only a thin
-wrapper around this executable API.
+version declared by the gem. Upgrade the version constraint when a new compatible
+0.x release is published. The repository's `bin/dev` is only a thin wrapper
+around this executable API.
 
 ## Development checks
 
