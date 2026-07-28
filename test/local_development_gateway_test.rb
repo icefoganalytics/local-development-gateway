@@ -16,13 +16,15 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       gateway_ids: "gateway-id\n",
       health: "healthy\n",
       attached: "gateway-id\tlocal-gateway\tgateway\ttrue\n",
-      compose_error: nil
+      compose_error: nil,
+      startup_error: nil
     )
       @network_labels = network_labels
       @gateway_ids = gateway_ids
       @health = health
       @attached = attached
       @compose_error = compose_error
+      @startup_error = startup_error
       @calls = []
     end
 
@@ -41,6 +43,10 @@ class LocalDevelopmentGatewayTest < Minitest::Test
         @health
       when "compose"
         raise @compose_error if @compose_error && args.include?("down")
+        if @startup_error && args.include?("up")
+          @gateway_ids = "gateway-id\n"
+          raise @startup_error
+        end
 
         @gateway_ids = "gateway-id\n" if args.include?("up")
         ""
@@ -198,6 +204,23 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       end
 
     assert_same original_error, error
+    assert runner.calls.any? { |call| call[:args].include?("down") }
+  end
+
+  def test_with_running_cleans_up_when_startup_fails
+    startup_error =
+      LocalDevelopmentGateway::DockerError.new(
+        %w[docker compose],
+        "startup failed"
+      )
+    runner = FakeRunner.new(gateway_ids: "", startup_error: startup_error)
+
+    error =
+      assert_raises(LocalDevelopmentGateway::DockerError) do
+        client(runner).with_running { flunk "block should not run" }
+      end
+
+    assert_same startup_error, error
     assert runner.calls.any? { |call| call[:args].include?("down") }
   end
 

@@ -95,9 +95,8 @@ module LocalDevelopmentGateway
     end
 
     def with_running(ensure_running: true)
-      self.ensure_running if ensure_running
-
       begin
+        self.ensure_running if ensure_running
         yield
       ensure
         block_error = $!
