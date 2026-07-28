@@ -83,9 +83,9 @@ bundle exec local-development-gateway down
 
 `local-development-gateway` uses the installed asset path, the
 `local-gateway` Compose project and network labels, and the pinned minimum Ruby
-version declared by the gem. Upgrade the version constraint when a new compatible
-0.x release is published. The repository's `bin/dev` is only a thin wrapper
-around this executable API.
+version declared by the gem. The `~> 0.1` constraint follows the consuming
+project's published Gemfile.
+The repository's `bin/dev` is only a thin wrapper around this executable API.
 
 ## Development checks
 
