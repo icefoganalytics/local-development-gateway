@@ -94,6 +94,20 @@ module LocalDevelopmentGateway
       :stopped
     end
 
+    def with_running(ensure_running: true)
+      begin
+        self.ensure_running if ensure_running
+        yield
+      ensure
+        block_error = $!
+        begin
+          stop_if_unused
+        rescue StandardError => cleanup_error
+          raise cleanup_error unless block_error
+        end
+      end
+    end
+
     def compose(*args, capture: true)
       @runner.call(
         "compose",
@@ -273,6 +287,10 @@ module LocalDevelopmentGateway
   class << self
     def ensure_running(*args)
       Client.new.ensure_running(*args)
+    end
+
+    def with_running(ensure_running: true, &block)
+      Client.new.with_running(ensure_running: ensure_running, &block)
     end
 
     def start(*args)
