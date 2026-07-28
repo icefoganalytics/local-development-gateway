@@ -64,6 +64,8 @@ their bundle and pin the compatible minor version:
 gem "local-development-gateway", "~> 0.1.0"
 ```
 
+Published gem: [`local-development-gateway`](https://rubygems.org/gems/local-development-gateway)
+
 The gem packages the gateway Compose file and pinned Traefik configuration.
 Its executable provides the same lifecycle commands:
 
