@@ -87,6 +87,25 @@ version declared by the gem. The `~> 0.1` constraint follows the consuming
 project's published Gemfile.
 The repository's `bin/dev` is only a thin wrapper around this executable API.
 
+### Ruby API lifecycle
+
+Wrap a command that needs the gateway with the block-oriented helper:
+
+```ruby
+require "local_development_gateway"
+
+result = LocalDevelopmentGateway.with_running do
+  run_development_command
+end
+```
+
+The helper starts or reuses the gateway before yielding, returns the block's
+result, and conditionally stops an unused gateway afterward. Cleanup also runs
+when the block raises without replacing the original exception. For a shutdown
+command that must not start a missing gateway, pass
+`ensure_running: false`; the block still runs and unused-gateway cleanup is
+attempted.
+
 ## Development checks
 
 Install the locked development tools with `bundle install`. Run the Ruby
