@@ -1,0 +1,11 @@
+# Pinned with the gateway gem so every consumer uses the same routing contract.
+entryPoints:
+  web:
+    address: ":80"
+
+ping: {}
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: local-gateway

@@ -55,6 +55,31 @@ The wrapper also passes unrecognized arguments directly to `docker compose`, so
 
 Port `80` on `127.0.0.1` must be free before starting. The gateway never binds to a non-loopback address.
 
+## Install as a gem
+
+Consuming projects do not need a gateway checkout. Add the released gem to
+their bundle and pin the compatible minor version:
+
+```ruby
+gem "local-development-gateway", "~> 0.1.0"
+```
+
+The gem packages the gateway Compose file and pinned Traefik configuration.
+Its executable provides the same lifecycle commands:
+
+```sh
+bundle exec local-development-gateway up
+bundle exec local-development-gateway status
+bundle exec local-development-gateway logs
+bundle exec local-development-gateway down
+```
+
+`local-development-gateway` uses the installed asset path, the
+`local-gateway` Compose project and network labels, and the pinned minimum Ruby
+version declared by the gem. Upgrade the version constraint when a new
+compatible release is published. The repository's `bin/dev` is only a thin
+wrapper around this executable API.
+
 ## Use case: Traditional Knowledge beside WRAP
 
 1. Start this gateway once.
