@@ -15,12 +15,14 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       network_labels: "local-gateway\tlocal-gateway\n",
       gateway_ids: "gateway-id\n",
       health: "healthy\n",
-      attached: "gateway-id\tlocal-gateway\tgateway\ttrue\n"
+      attached: "gateway-id\tlocal-gateway\tgateway\ttrue\n",
+      compose_error: nil
     )
       @network_labels = network_labels
       @gateway_ids = gateway_ids
       @health = health
       @attached = attached
+      @compose_error = compose_error
       @calls = []
     end
 
@@ -38,6 +40,8 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       when "inspect"
         @health
       when "compose"
+        raise @compose_error if @compose_error && args.include?("down")
+
         @gateway_ids = "gateway-id\n" if args.include?("up")
         ""
       end
@@ -140,6 +144,91 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
     assert_equal :stopped, client(runner).stop_if_unused
     assert runner.calls.any? { |call| call[:args].include?("down") }
+  end
+
+  def test_with_running_returns_the_block_result_and_stops_started_gateway
+    runner = FakeRunner.new(gateway_ids: "")
+
+    result = client(runner).with_running { :result }
+
+    assert_equal :result, result
+    assert runner.calls.any? { |call| call[:args].include?("down") }
+  end
+
+  def test_with_running_reuses_a_ready_gateway_and_cleans_it_up
+    runner = FakeRunner.new
+
+    client(runner).with_running { :result }
+
+    refute runner.calls.any? { |call| call[:args].include?("up") }
+    assert runner.calls.any? { |call| call[:args].include?("down") }
+  end
+
+  def test_with_running_runs_without_starting_a_missing_gateway
+    runner = FakeRunner.new(network_labels: nil, gateway_ids: "")
+
+    result = client(runner).with_running(ensure_running: false) { :result }
+
+    assert_equal :result, result
+    refute runner.calls.any? { |call| call[:args].include?("up") }
+  end
+
+  def test_with_running_cleans_up_an_existing_gateway_without_starting
+    runner = FakeRunner.new
+
+    result = client(runner).with_running(ensure_running: false) { :result }
+
+    assert_equal :result, result
+    refute runner.calls.any? { |call| call[:args].include?("up") }
+    assert runner.calls.any? { |call| call[:args].include?("down") }
+  end
+
+  def test_with_running_preserves_a_block_exception_when_cleanup_fails
+    original_error = RuntimeError.new("block failed")
+    cleanup_error =
+      LocalDevelopmentGateway::DockerError.new(
+        %w[docker compose],
+        "cleanup failed"
+      )
+    runner = FakeRunner.new(compose_error: cleanup_error)
+
+    error =
+      assert_raises(RuntimeError) do
+        client(runner).with_running { raise original_error }
+      end
+
+    assert_same original_error, error
+    assert runner.calls.any? { |call| call[:args].include?("down") }
+  end
+
+  def test_with_running_preserves_a_gateway_used_by_another_project
+    runner = FakeRunner.new(attached: <<~CONTAINERS)
+        gateway-id\tlocal-gateway\tgateway\ttrue
+        consumer-id\tconsumer-project\tweb\t
+      CONTAINERS
+
+    assert_equal :result, client(runner).with_running { :result }
+    refute runner.calls.any? { |call| call[:args].include?("down") }
+  end
+
+  def test_module_with_running_delegates_to_a_single_client
+    fake_client = Object.new
+    observed_ensure_running = nil
+    fake_client.define_singleton_method(
+      :with_running
+    ) do |ensure_running: true, &block|
+      observed_ensure_running = ensure_running
+      block.call
+    end
+
+    LocalDevelopmentGateway::Client.stub(:new, fake_client) do
+      assert_equal :result,
+                   LocalDevelopmentGateway.with_running(ensure_running: false) {
+                     :result
+                   }
+    end
+
+    refute observed_ensure_running
   end
 
   private
