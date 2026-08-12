@@ -188,7 +188,6 @@ module LocalDevelopmentGateway
       output =
         @runner.call(
           "ps",
-          "--all",
           "--filter",
           "network=#{NETWORK_NAME}",
           "--format",

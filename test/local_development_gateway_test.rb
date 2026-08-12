@@ -16,6 +16,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       gateway_ids: "gateway-id\n",
       health: "healthy\n",
       attached: "gateway-id\tlocal-gateway\tgateway\ttrue\n",
+      all_attached: attached,
       compose_error: nil,
       startup_error: nil
     )
@@ -23,6 +24,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       @gateway_ids = gateway_ids
       @health = health
       @attached = attached
+      @all_attached = all_attached
       @compose_error = compose_error
       @startup_error = startup_error
       @calls = []
@@ -38,7 +40,11 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
         @network_labels
       when "ps"
-        args.include?("--format") ? @attached : @gateway_ids
+        if args.include?("--format")
+          (args.include?("--all") ? @all_attached : @attached)
+        else
+          @gateway_ids
+        end
       when "inspect"
         @health
       when "compose"
@@ -135,14 +141,32 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     assert runner.calls.any? { |call| call[:args].include?("up") }
   end
 
-  def test_preserves_gateway_when_an_unrelated_attached_container_exists
+  def test_preserves_gateway_when_a_running_attached_container_exists
     runner = FakeRunner.new(attached: <<~CONTAINERS)
-        gateway-id\tlocal-gateway\tgateway\ttrue
-        consumer-id\tconsumer-project\tweb\t
-      CONTAINERS
+      gateway-id\tlocal-gateway\tgateway\ttrue
+      consumer-id\tconsumer-project\tweb\t
+    CONTAINERS
 
     assert_equal :in_use, client(runner).stop_if_unused
     refute runner.calls.any? { |call| call[:args].include?("down") }
+  end
+
+  def test_stops_gateway_when_an_exited_attached_container_exists
+    runner = FakeRunner.new(all_attached: <<~CONTAINERS)
+      gateway-id\tlocal-gateway\tgateway\ttrue
+      consumer-id\tconsumer-project\tweb\t
+    CONTAINERS
+
+    assert_equal :stopped, client(runner).stop_if_unused
+  end
+
+  def test_stops_gateway_when_a_created_attached_container_exists
+    runner = FakeRunner.new(all_attached: <<~CONTAINERS)
+      gateway-id\tlocal-gateway\tgateway\ttrue
+      consumer-id\tconsumer-project\tweb\t
+    CONTAINERS
+
+    assert_equal :stopped, client(runner).stop_if_unused
   end
 
   def test_stops_the_last_gateway_when_only_gateway_container_remains
