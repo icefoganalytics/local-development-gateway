@@ -7,8 +7,8 @@ module LocalDevelopmentGateway
   PROJECT_NAME = "local-gateway"
   NETWORK_NAME = "local-gateway"
   SERVICE_NAME = "gateway"
-  DNS_SERVICE_NAME = "dns"
   GATEWAY_LABEL = "local-gateway"
+  OBSOLETE_SERVICE_NAMES = %w[dns].freeze
   ASSET_ROOT = File.expand_path("..", __dir__)
   COMPOSE_FILE = File.join(ASSET_ROOT, "docker-compose.yml")
   TRAEFIK_CONFIG_FILE = File.join(ASSET_ROOT, "config", "traefik.yml")
@@ -16,7 +16,7 @@ module LocalDevelopmentGateway
   class Error < StandardError
   end
 
-  require_relative "local_development_gateway/tcp_endpoints"
+  require_relative "local_development_gateway/host_agent"
 
   class DockerError < Error
     attr_reader :command, :output
@@ -52,14 +52,12 @@ module LocalDevelopmentGateway
 
     def initialize(
       runner: Docker.new,
-      tcp_endpoints: TcpEndpoints.new,
       timeout: 30,
       poll_interval: 0.25,
       sleeper: ->(seconds) { sleep seconds },
       clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
     )
       @runner = runner
-      @tcp_endpoints = tcp_endpoints
       @timeout = timeout
       @poll_interval = poll_interval
       @sleeper = sleeper
@@ -69,7 +67,6 @@ module LocalDevelopmentGateway
     def ensure_running(*compose_args)
       return :reused if compose_args.empty? && ready?
 
-      @tcp_endpoints.ensure_hosts_file
       compose("up", "-d", "--remove-orphans", *compose_args)
       wait_until_ready
       :started
@@ -78,12 +75,9 @@ module LocalDevelopmentGateway
     alias start ensure_running
 
     def ready?
-      network_exists? &&
-        [SERVICE_NAME, DNS_SERVICE_NAME].all? do |service|
-          gateway_container_ids(
-            service: service,
-            status: "running"
-          ).any? { |id| healthy_container?(id) }
+      network_exists? && obsolete_services_absent? &&
+        gateway_container_ids(status: "running").any? do |id|
+          healthy_container?(id)
         end
     end
 
@@ -182,6 +176,12 @@ module LocalDevelopmentGateway
       output.lines.map(&:strip).reject(&:empty?)
     end
 
+    def obsolete_services_absent?
+      OBSOLETE_SERVICE_NAMES.all? do |service|
+        gateway_container_ids(service: service).empty?
+      end
+    end
+
     def healthy_container?(id)
       @runner.call(
         "inspect",
@@ -215,8 +215,8 @@ module LocalDevelopmentGateway
     end
 
     def gateway_container?(container)
-      [SERVICE_NAME, DNS_SERVICE_NAME].include?(container[:service]) &&
-        container[:project] == PROJECT_NAME && container[:label] == "true"
+      container[:project] == PROJECT_NAME &&
+        container[:service] == SERVICE_NAME && container[:label] == "true"
     end
   end
 
@@ -225,11 +225,14 @@ module LocalDevelopmentGateway
       Usage: local-development-gateway COMMAND [OPTIONS]
 
       Commands:
-        up, ensure  Start or reuse the shared gateway
-        status      Show the gateway Compose status
-        ready       Check gateway readiness
-        logs        Follow gateway logs
-        down, stop  Stop the gateway only when unused
+        up, ensure           Start or reuse the shared gateway
+        status               Show the gateway Compose status
+        ready                Check gateway readiness
+        logs                 Follow gateway logs
+        down, stop           Stop the gateway only when unused
+        install-host-agent   Install and start local TCP routing
+        uninstall-host-agent Remove local TCP routing
+        host-agent           Run the local TCP routing agent
 
       Other commands are passed to Docker Compose using the packaged assets.
     USAGE
@@ -265,6 +268,14 @@ module LocalDevelopmentGateway
         @client.logs(*@argv, follow: true)
       when "down", "stop"
         report_stop(@client.stop_if_unused)
+      when "install-host-agent"
+        HostAgent::Installer.install
+        @output.puts "Installed Local Development Gateway host agent"
+      when "uninstall-host-agent"
+        HostAgent::Installer.uninstall
+        @output.puts "Uninstalled Local Development Gateway host agent"
+      when "host-agent"
+        HostAgent.new.run
       else
         @output.write(@client.compose(command, *@argv))
       end
@@ -319,14 +330,6 @@ module LocalDevelopmentGateway
 
     def stop_if_unused
       Client.new.stop_if_unused
-    end
-
-    def tcp_endpoint(worktree: Dir.pwd, service: "db")
-      TcpEndpoints.new.register(worktree: worktree, service: service)
-    end
-
-    def release_tcp_endpoint(worktree: Dir.pwd, service: "db")
-      TcpEndpoints.new.release(worktree: worktree, service: service)
     end
   end
 end

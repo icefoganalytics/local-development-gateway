@@ -2,7 +2,6 @@
 
 require "minitest/autorun"
 require "open3"
-require "socket"
 require "rbconfig"
 require "rubygems/package"
 require "tmpdir"
@@ -15,19 +14,16 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     def initialize(
       network_labels: "local-gateway\tlocal-gateway\n",
       gateway_ids: "gateway-id\n",
-      dns_ids: "dns-id\n",
+      obsolete_ids: "",
       health: "healthy\n",
-      attached: <<~CONTAINERS,
-        gateway-id\tlocal-gateway\tgateway\ttrue
-        dns-id\tlocal-gateway\tdns\ttrue
-      CONTAINERS
+      attached: "gateway-id\tlocal-gateway\tgateway\ttrue\n",
       all_attached: attached,
       compose_error: nil,
       startup_error: nil
     )
       @network_labels = network_labels
       @gateway_ids = gateway_ids
-      @dns_ids = dns_ids
+      @obsolete_ids = obsolete_ids
       @health = health
       @attached = attached
       @all_attached = all_attached
@@ -49,7 +45,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
         if args.include?("--format")
           (args.include?("--all") ? @all_attached : @attached)
         elsif args.include?("label=com.docker.compose.service=dns")
-          @dns_ids
+          @obsolete_ids
         else
           @gateway_ids
         end
@@ -59,13 +55,12 @@ class LocalDevelopmentGatewayTest < Minitest::Test
         raise @compose_error if @compose_error && args.include?("down")
         if @startup_error && args.include?("up")
           @gateway_ids = "gateway-id\n"
-          @dns_ids = "dns-id\n"
           raise @startup_error
         end
 
         if args.include?("up")
           @gateway_ids = "gateway-id\n"
-          @dns_ids = "dns-id\n"
+          @obsolete_ids = ""
         end
         ""
       end
@@ -84,7 +79,8 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     assert status.success?, stderr
     assert_includes Gem::Package.new(gem_path).contents, "config/traefik.yml"
     assert_includes Gem::Package.new(gem_path).contents, "docker-compose.yml"
-    assert_includes Gem::Package.new(gem_path).contents, "config/Corefile"
+    assert_includes Gem::Package.new(gem_path).contents,
+                    "lib/local_development_gateway/host_agent.rb"
   end
 
   def test_installed_gem_resolves_packaged_asset_paths
@@ -121,83 +117,6 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     assert File.file?(traefik_file)
   end
 
-  def test_tcp_endpoints_allocate_stable_addresses_and_dns_records
-    Dir.mktmpdir do |state_dir|
-      Dir.mktmpdir do |worktrees_dir|
-        first_worktree = File.join(worktrees_dir, "issue-567")
-        second_worktree = File.join(worktrees_dir, "wrapx-416")
-        Dir.mkdir(first_worktree)
-        Dir.mkdir(second_worktree)
-        endpoints =
-          LocalDevelopmentGateway::TcpEndpoints.new(state_dir: state_dir)
-
-        first = endpoints.register(worktree: first_worktree)
-        second = endpoints.register(worktree: second_worktree)
-
-        assert_equal first.address,
-                     endpoints.register(worktree: first_worktree).address
-        refute_equal first.address, second.address
-        assert_equal "db.issue-567.gateway.test", first.hostname
-        assert_equal(
-          "#{first.address} db.issue-567.gateway.test\n#{second.address} db.wrapx-416.gateway.test\n",
-          File.read(File.join(state_dir, "hosts"))
-        )
-      end
-    end
-  end
-
-  def test_tcp_endpoints_bind_the_same_port_on_separate_loopback_addresses
-    Dir.mktmpdir do |state_dir|
-      Dir.mktmpdir do |worktrees_dir|
-        first_worktree = File.join(worktrees_dir, "first")
-        second_worktree = File.join(worktrees_dir, "second")
-        Dir.mkdir(first_worktree)
-        Dir.mkdir(second_worktree)
-        endpoints =
-          LocalDevelopmentGateway::TcpEndpoints.new(state_dir: state_dir)
-        first = endpoints.register(worktree: first_worktree)
-        second = endpoints.register(worktree: second_worktree)
-        first_server = TCPServer.new(first.address, 14_333)
-        second_server = TCPServer.new(second.address, 14_333)
-
-        assert_equal 14_333, first_server.addr[1]
-        assert_equal 14_333, second_server.addr[1]
-      ensure
-        first_server&.close
-        second_server&.close
-      end
-    end
-  end
-
-  def test_releasing_tcp_endpoint_removes_dns_only_after_the_last_service
-    Dir.mktmpdir do |state_dir|
-      Dir.mktmpdir do |worktrees_dir|
-        worktree = File.join(worktrees_dir, "issue-567")
-        Dir.mkdir(worktree)
-        endpoints =
-          LocalDevelopmentGateway::TcpEndpoints.new(state_dir: state_dir)
-        endpoints.register(worktree: worktree, service: "db")
-        endpoints.register(worktree: worktree, service: "cache")
-
-        endpoints.release(worktree: worktree, service: "db")
-
-        assert_equal "127.77.0.1 cache.issue-567.gateway.test\n",
-                     File.read(File.join(state_dir, "hosts"))
-
-        endpoints.release(worktree: worktree, service: "cache")
-
-        assert_empty File.read(File.join(state_dir, "hosts"))
-      end
-    end
-  end
-
-  def test_coredns_reloads_managed_host_records
-    corefile = File.read(File.expand_path("../config/Corefile", __dir__))
-
-    assert_includes corefile, "hosts /var/lib/local-development-gateway/hosts"
-    assert_includes corefile, "reload 1s"
-  end
-
   def test_rejects_a_network_with_the_wrong_compose_scope
     runner = FakeRunner.new(network_labels: "other-project\tlocal-gateway\n")
 
@@ -206,12 +125,6 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
   def test_requires_a_healthy_gateway_container
     runner = FakeRunner.new(health: "starting\n")
-
-    refute client(runner).ready?
-  end
-
-  def test_requires_a_healthy_dns_container
-    runner = FakeRunner.new(dns_ids: "")
 
     refute client(runner).ready?
   end
@@ -228,6 +141,13 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
     assert_equal :reused, client(runner).ensure_running
     assert_empty runner.calls.select { |call| call[:args].first == "compose" }
+  end
+
+  def test_recreates_gateway_to_remove_obsolete_services
+    runner = FakeRunner.new(obsolete_ids: "dns-id\n")
+
+    assert_equal :started, client(runner).ensure_running
+    assert runner.calls.any? { |call| call[:args].include?("up") }
   end
 
   def test_starts_and_waits_for_a_ready_gateway
@@ -392,8 +312,6 @@ class LocalDevelopmentGatewayTest < Minitest::Test
   def client(runner)
     LocalDevelopmentGateway::Client.new(
       runner: runner,
-      tcp_endpoints:
-        LocalDevelopmentGateway::TcpEndpoints.new(state_dir: Dir.mktmpdir),
       timeout: 1,
       sleeper: ->(_seconds) {}
     )
