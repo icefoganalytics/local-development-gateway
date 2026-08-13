@@ -128,6 +128,7 @@ continues to that selected container.
 
 - DBeaver connects using host `db.<worktree>.wrap.localhost` and port `1433`.
 - SQL Server TDS is treated as raw TCP; the consumer must not need an HTTP shim.
+- Concurrent routed databases must use compatible PRELOGIN encryption settings because the client receives that negotiation response before its TLS hostname identifies the backend.
 - Existing browser routes through Traefik on `127.0.0.1:80` remain unchanged.
 - Multiple active WRAP worktrees can all use internal port `1433` simultaneously.
 - Other hostname-routed protocols may use Traefik TLS SNI or their own protocol-aware router; this change intentionally implements only SQL Server TDS.
