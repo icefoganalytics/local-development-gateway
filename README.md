@@ -66,7 +66,7 @@ Consuming projects do not need a gateway checkout. Add the released gem to
 their bundle and pin the compatible minor version:
 
 ```ruby
-gem "local-development-gateway", "~> 0.1"
+gem "local-development-gateway", "~> 0.2"
 ```
 
 Published gem: [`local-development-gateway`](https://rubygems.org/gems/local-development-gateway)
@@ -83,7 +83,7 @@ bundle exec local-development-gateway down
 
 `local-development-gateway` uses the installed asset path, the
 `local-gateway` Compose project and network labels, and the pinned minimum Ruby
-version declared by the gem. The `~> 0.1` constraint follows the consuming
+version declared by the gem. The `~> 0.2` constraint follows the consuming
 project's published Gemfile.
 The repository's `bin/dev` is only a thin wrapper around this executable API.
 
@@ -108,50 +108,59 @@ attempted.
 
 ## Worktree TCP services
 
-The gateway also runs a loopback-only CoreDNS server on `127.0.0.1:53` for
-`gateway.test`. Configure the local resolver to route that domain to the
-gateway before using a desktop TCP client. On systemd-resolved:
+Install the host agent once. It watches Docker labels, manages an isolated
+block in `/etc/hosts`, and forwards loopback TCP connections. From this
+checkout:
 
 ```sh
-sudo resolvectl dns lo 127.0.0.1
-sudo resolvectl domain lo '~gateway.test'
+sudo bin/dev install-host-agent
 ```
 
-Participating projects allocate an endpoint through the gem instead of choosing
-a host port. For example, WRAP's development command would acquire the endpoint
-before bringing up its `db` service:
+From a consuming project that uses the gem:
 
-```ruby
-endpoint = LocalDevelopmentGateway.tcp_endpoint(service: "db")
-ENV["LOCAL_DB_BIND_ADDRESS"] = endpoint.address
-# docker compose up -d db
+```sh
+sudo "$(bundle show local-development-gateway)/bin/local-development-gateway" \
+  install-host-agent
 ```
 
-Its development Compose file would publish the standard SQL Server port on that
-allocated address:
+The installed systemd service runs from that gateway version. Re-run the
+command after updating the gateway. Remove the service and its managed host
+records with `uninstall-host-agent`.
+
+A participating project only joins its existing service to `local-gateway` and
+adds two labels:
 
 ```yaml
 services:
   db:
-    ports:
-      - "${LOCAL_DB_BIND_ADDRESS:?set by bin/dev}:1433:1433"
+    networks:
+      - default
+      - local-gateway
+    labels:
+      - "local-gateway.tcp.hostname=db.${GATEWAY_HOSTNAME:-wrap.localhost}"
+      - "local-gateway.tcp.port=1433"
+
+networks:
+  local-gateway:
+    external: true
+    name: local-gateway
 ```
 
-Another worktree receives a different `127.77.0.x` address, so it can use the
-same port. DBeaver connects to `endpoint.hostname` on port `1433`, for example
-`db.issue-567.gateway.test:1433`.
+For a worktree whose `GATEWAY_HOSTNAME` is `issue-567.wrap.localhost`, DBeaver
+connects to `db.issue-567.wrap.localhost` on port `1433`.
 
-After `docker compose down db` succeeds, the project releases the endpoint:
+The host agent assigns each active hostname a distinct address in
+`127.77.0.0/24`, writes the exact `.localhost` mapping to its marked
+`/etc/hosts` block, and forwards the standard port to the labelled container's
+internal port. It discovers container replacements and removes stopped routes
+automatically. Consumers do not allocate addresses, publish host ports, run
+gateway lifecycle code, or perform route cleanup.
 
-```ruby
-LocalDevelopmentGateway.release_tcp_endpoint(service: "db")
-```
-
-The mapping persists while registered in
-`$LOCAL_DEVELOPMENT_GATEWAY_STATE_DIR` (or
-`~/.local/state/local-development-gateway`) and CoreDNS reloads it
-automatically. Release only after the service is down; `up` returns while
-containers remain active.
+The host agent runs as root because `/etc/hosts` is root-owned. It accepts only
+`.localhost` hostnames and unprivileged ports, binds only `127.77.0.0/24`, and
+does not publish records through DNS. See
+[`docs/architecture/local-tcp-routing.md`](docs/architecture/local-tcp-routing.md)
+for the complete contract and security boundary.
 
 ## Development checks
 
@@ -163,9 +172,11 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   Gemfile \
   Rakefile \
   lib/local_development_gateway.rb \
+  lib/local_development_gateway/host_agent.rb \
   lib/local_development_gateway/version.rb \
   bin/dev \
   bin/local-development-gateway \
+  test/host_agent_test.rb \
   test/local_development_gateway_test.rb
 rake test
 ```
