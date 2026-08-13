@@ -14,15 +14,17 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     def initialize(
       network_labels: "local-gateway\tlocal-gateway\n",
       gateway_ids: "gateway-id\n",
+      router_ids: "router-id\n",
       obsolete_ids: "",
       health: "healthy\n",
-      attached: "gateway-id\tlocal-gateway\tgateway\ttrue\n",
+      attached: "gateway-id\tlocal-gateway\tgateway\ttrue\nrouter-id\tlocal-gateway\ttds-router\ttrue\n",
       all_attached: attached,
       compose_error: nil,
       startup_error: nil
     )
       @network_labels = network_labels
       @gateway_ids = gateway_ids
+      @router_ids = router_ids
       @obsolete_ids = obsolete_ids
       @health = health
       @attached = attached
@@ -46,6 +48,8 @@ class LocalDevelopmentGatewayTest < Minitest::Test
           (args.include?("--all") ? @all_attached : @attached)
         elsif args.include?("label=com.docker.compose.service=dns")
           @obsolete_ids
+        elsif args.include?("label=com.docker.compose.service=tds-router")
+          @router_ids
         else
           @gateway_ids
         end
@@ -60,6 +64,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
         if args.include?("up")
           @gateway_ids = "gateway-id\n"
+          @router_ids = "router-id\n"
           @obsolete_ids = ""
         end
         ""
@@ -77,10 +82,10 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       Open3.capture3("gem", "build", spec.loaded_from, "--output", gem_path)
 
     assert status.success?, stderr
-    assert_includes Gem::Package.new(gem_path).contents, "config/traefik.yml"
-    assert_includes Gem::Package.new(gem_path).contents, "docker-compose.yml"
-    assert_includes Gem::Package.new(gem_path).contents,
-                    "lib/local_development_gateway/host_agent.rb"
+    contents = Gem::Package.new(gem_path).contents
+    assert_includes contents, "config/traefik.yml"
+    assert_includes contents, "docker-compose.yml"
+    assert_includes contents, "lib/local_development_gateway/tds_router.rb"
   end
 
   def test_installed_gem_resolves_packaged_asset_paths

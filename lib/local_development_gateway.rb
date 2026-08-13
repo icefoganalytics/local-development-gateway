@@ -6,7 +6,7 @@ require_relative "local_development_gateway/version"
 module LocalDevelopmentGateway
   PROJECT_NAME = "local-gateway"
   NETWORK_NAME = "local-gateway"
-  SERVICE_NAME = "gateway"
+  SERVICE_NAMES = %w[gateway tds-router].freeze
   GATEWAY_LABEL = "local-gateway"
   OBSOLETE_SERVICE_NAMES = %w[dns].freeze
   ASSET_ROOT = File.expand_path("..", __dir__)
@@ -16,7 +16,7 @@ module LocalDevelopmentGateway
   class Error < StandardError
   end
 
-  require_relative "local_development_gateway/host_agent"
+  require_relative "local_development_gateway/tds_router"
 
   class DockerError < Error
     attr_reader :command, :output
@@ -76,8 +76,11 @@ module LocalDevelopmentGateway
 
     def ready?
       network_exists? && obsolete_services_absent? &&
-        gateway_container_ids(status: "running").any? do |id|
-          healthy_container?(id)
+        SERVICE_NAMES.all? do |service|
+          gateway_container_ids(
+            service: service,
+            status: "running"
+          ).any? { |id| healthy_container?(id) }
         end
     end
 
@@ -153,10 +156,13 @@ module LocalDevelopmentGateway
     end
 
     def gateway_exists?
-      network_exists? && !gateway_container_ids.empty?
+      network_exists? &&
+        SERVICE_NAMES.any? do |service|
+          !gateway_container_ids(service: service).empty?
+        end
     end
 
-    def gateway_container_ids(service: SERVICE_NAME, status: nil)
+    def gateway_container_ids(service:, status: nil)
       args = ["ps"]
       args << "--all" unless status
       args.concat(
@@ -216,7 +222,8 @@ module LocalDevelopmentGateway
 
     def gateway_container?(container)
       container[:project] == PROJECT_NAME &&
-        container[:service] == SERVICE_NAME && container[:label] == "true"
+        SERVICE_NAMES.include?(container[:service]) &&
+        container[:label] == "true"
     end
   end
 
@@ -225,14 +232,11 @@ module LocalDevelopmentGateway
       Usage: local-development-gateway COMMAND [OPTIONS]
 
       Commands:
-        up, ensure           Start or reuse the shared gateway
-        status               Show the gateway Compose status
-        ready                Check gateway readiness
-        logs                 Follow gateway logs
-        down, stop           Stop the gateway only when unused
-        install-host-agent   Install and start local TCP routing
-        uninstall-host-agent Remove local TCP routing
-        host-agent           Run the local TCP routing agent
+        up, ensure  Start or reuse the shared gateway
+        status      Show the gateway Compose status
+        ready       Check gateway readiness
+        logs        Follow gateway logs
+        down, stop  Stop the gateway only when unused
 
       Other commands are passed to Docker Compose using the packaged assets.
     USAGE
@@ -268,14 +272,6 @@ module LocalDevelopmentGateway
         @client.logs(*@argv, follow: true)
       when "down", "stop"
         report_stop(@client.stop_if_unused)
-      when "install-host-agent"
-        HostAgent::Installer.install
-        @output.puts "Installed Local Development Gateway host agent"
-      when "uninstall-host-agent"
-        HostAgent::Installer.uninstall
-        @output.puts "Uninstalled Local Development Gateway host agent"
-      when "host-agent"
-        HostAgent.new.run
       else
         @output.write(@client.compose(command, *@argv))
       end
