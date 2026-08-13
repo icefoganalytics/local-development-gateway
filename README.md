@@ -106,6 +106,41 @@ command that must not start a missing gateway, pass
 `ensure_running: false`; the block still runs and unused-gateway cleanup is
 attempted.
 
+## Worktree TCP services
+
+The gateway also runs a loopback-only CoreDNS server on `127.0.0.1:53` for
+`gateway.test`. Configure the local resolver to route that domain to the
+gateway before using a desktop TCP client. On systemd-resolved:
+
+```sh
+sudo resolvectl dns lo 127.0.0.1
+sudo resolvectl domain lo '~gateway.test'
+```
+
+Participating projects allocate an endpoint through the gem instead of choosing
+a host port:
+
+```ruby
+endpoint = LocalDevelopmentGateway.tcp_endpoint(service: "db")
+# endpoint.address  # 127.77.0.1
+# endpoint.hostname # db.issue-567.gateway.test
+```
+
+Bind the project's TCP service to `endpoint.address` and its standard internal
+port. Another worktree receives a different `127.77.0.x` address and can use
+the same port. After that project's Compose service has stopped, release the
+endpoint:
+
+```ruby
+LocalDevelopmentGateway.release_tcp_endpoint(service: "db")
+```
+
+The mapping persists while registered in
+`$LOCAL_DEVELOPMENT_GATEWAY_STATE_DIR` (or
+`~/.local/state/local-development-gateway`) and CoreDNS reloads it
+automatically. Release only after the service is down; `up` returns while
+containers remain active.
+
 ## Development checks
 
 Install the locked development tools with `bundle install`. Run the Ruby
