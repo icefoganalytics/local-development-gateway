@@ -108,24 +108,8 @@ attempted.
 
 ## Worktree TCP services
 
-Install the host agent once. It watches Docker labels, manages an isolated
-block in `/etc/hosts`, and forwards loopback TCP connections. From this
-checkout:
-
-```sh
-sudo bin/dev install-host-agent
-```
-
-From a consuming project that uses the gem:
-
-```sh
-sudo "$(bundle show local-development-gateway)/bin/local-development-gateway" \
-  install-host-agent
-```
-
-The installed systemd service runs from that gateway version. Re-run the
-command after updating the gateway. Remove the service and its managed host
-records with `uninstall-host-agent`.
+The gateway includes a dedicated SQL Server TDS router. No host agent, DNS
+server, administrator privileges, or `/etc/hosts` changes are required.
 
 A participating project only joins its existing service to `local-gateway` and
 adds two labels:
@@ -147,18 +131,19 @@ networks:
 ```
 
 For a worktree whose `GATEWAY_HOSTNAME` is `issue-567.wrap.localhost`, DBeaver
-connects to `db.issue-567.wrap.localhost` on port `1433`.
+connects to `db.issue-567.wrap.localhost` on port `1433` with encryption
+enabled and **Trust server certificate** selected.
 
-The host agent assigns each active hostname a distinct address in
-`127.77.0.0/24`, writes the exact `.localhost` mapping to its marked
-`/etc/hosts` block, and forwards the standard port to the labelled container's
-internal port. It discovers container replacements and removes stopped routes
-automatically. Consumers do not allocate addresses, publish host ports, run
-gateway lifecycle code, or perform route cleanup.
+All `.localhost` names resolve to loopback. The gateway publishes one
+loopback-only `1433` listener, discovers labelled containers through Docker,
+and reads the requested hostname from the TLS ClientHello wrapped in SQL
+Server's TDS PRELOGIN exchange. It then forwards the encrypted stream to the
+matching container and internal port. Container replacements and stopped
+routes require no consumer lifecycle code or cleanup.
 
-The host agent runs as root because `/etc/hosts` is root-owned. It accepts only
-`.localhost` hostnames and unprivileged ports, binds only `127.77.0.0/24`, and
-does not publish records through DNS. See
+This routing path is specific to encrypted SQL Server TDS connections; the
+labels describe the target TCP endpoint, not a general plaintext TCP proxy.
+See
 [`docs/architecture/local-tcp-routing.md`](docs/architecture/local-tcp-routing.md)
 for the complete contract and security boundary.
 
@@ -172,11 +157,11 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   Gemfile \
   Rakefile \
   lib/local_development_gateway.rb \
-  lib/local_development_gateway/host_agent.rb \
+  lib/local_development_gateway/tds_router.rb \
   lib/local_development_gateway/version.rb \
   bin/dev \
   bin/local-development-gateway \
-  test/host_agent_test.rb \
+  test/tds_router_test.rb \
   test/local_development_gateway_test.rb
 rake test
 ```
