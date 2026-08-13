@@ -106,13 +106,14 @@ command that must not start a missing gateway, pass
 `ensure_running: false`; the block still runs and unused-gateway cleanup is
 attempted.
 
-## Worktree TCP services
+## Worktree database services
 
-The gateway includes a dedicated SQL Server TDS router. No host agent, DNS
-server, administrator privileges, or `/etc/hosts` changes are required.
+The gateway includes protocol drivers for encrypted SQL Server and PostgreSQL
+connections. No host agent, DNS server, administrator privileges, or
+`/etc/hosts` changes are required.
 
-A participating project only joins its existing service to `local-gateway` and
-adds two labels:
+A participating project only joins its existing database service to
+`local-gateway` and adds three labels:
 
 ```yaml
 services:
@@ -121,6 +122,7 @@ services:
       - default
       - local-gateway
     labels:
+      - "local-gateway.tcp.driver=sql_server"
       - "local-gateway.tcp.hostname=db.${GATEWAY_HOSTNAME:-wrap.localhost}"
       - "local-gateway.tcp.port=1433"
 
@@ -131,19 +133,26 @@ networks:
 ```
 
 For a worktree whose `GATEWAY_HOSTNAME` is `issue-567.wrap.localhost`, DBeaver
-connects to `db.issue-567.wrap.localhost` on port `1433` with encryption
-enabled and **Trust server certificate** selected.
+connects to `db.issue-567.wrap.localhost` on the driver's standard port:
 
-All `.localhost` names resolve to loopback. The gateway publishes one
-loopback-only `1433` listener, discovers labelled containers through Docker,
-and reads the requested hostname from the TLS ClientHello wrapped in SQL
-Server's TDS PRELOGIN exchange. It then forwards the encrypted stream to the
-matching container and internal port. Container replacements and stopped
-routes require no consumer lifecycle code or cleanup.
+| Driver label | Host port | Client requirement |
+| --- | ---: | --- |
+| `sql_server` | `1433` | Encryption enabled and **Trust server certificate** selected |
+| `postgresql` | `5432` | SSL mode `require` |
 
-This routing path is specific to encrypted SQL Server TDS connections; the
-labels describe the target TCP endpoint, not a general plaintext TCP proxy.
-See
+Use the database container's actual internal port in
+`local-gateway.tcp.port`; it does not need to match the host listener.
+
+All `.localhost` names resolve to loopback. The gateway publishes loopback-only
+listeners, discovers labelled containers through Docker, and uses the database
+protocol's encrypted handshake to select the hostname-labelled container.
+Container replacements and stopped routes require no consumer lifecycle code
+or cleanup.
+
+SQL Server encryption remains end to end through the router. The PostgreSQL
+driver terminates client TLS at the gateway and forwards the resulting
+PostgreSQL stream over the private Docker network because PostgreSQL sends its
+TLS hostname only after the gateway accepts its SSL request. See
 [`docs/architecture/local-tcp-routing.md`](docs/architecture/local-tcp-routing.md)
 for the complete contract and security boundary.
 
@@ -157,11 +166,11 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   Gemfile \
   Rakefile \
   lib/local_development_gateway.rb \
-  lib/local_development_gateway/tds_router.rb \
+  lib/local_development_gateway/database_router.rb \
   lib/local_development_gateway/version.rb \
   bin/dev \
   bin/local-development-gateway \
-  test/tds_router_test.rb \
+  test/database_router_test.rb \
   test/local_development_gateway_test.rb
 rake test
 ```

@@ -6,9 +6,9 @@ require_relative "local_development_gateway/version"
 module LocalDevelopmentGateway
   PROJECT_NAME = "local-gateway"
   NETWORK_NAME = "local-gateway"
-  SERVICE_NAMES = %w[gateway tds-router].freeze
+  SERVICE_NAMES = %w[gateway database-router].freeze
   GATEWAY_LABEL = "local-gateway"
-  OBSOLETE_SERVICE_NAMES = %w[dns].freeze
+  OBSOLETE_SERVICE_NAMES = %w[dns tds-router].freeze
   ASSET_ROOT = File.expand_path("..", __dir__)
   COMPOSE_FILE = File.join(ASSET_ROOT, "docker-compose.yml")
   TRAEFIK_CONFIG_FILE = File.join(ASSET_ROOT, "config", "traefik.yml")
@@ -16,7 +16,7 @@ module LocalDevelopmentGateway
   class Error < StandardError
   end
 
-  require_relative "local_development_gateway/tds_router"
+  require_relative "local_development_gateway/database_router"
 
   class DockerError < Error
     attr_reader :command, :output

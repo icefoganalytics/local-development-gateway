@@ -1,20 +1,26 @@
 # Local TCP Routing Architecture
 
-Status: implementation and Linux/Docker verification complete in PR #22; user review pending.
+Status: SQL Server and PostgreSQL protocol routing implemented in PR #22; user review pending.
 
 ## Request
 
-Extend Local Development Gateway so a participating Docker Compose project can expose raw TCP services, initially SQL Server, with the same simple declarative integration it already uses for HTTP services.
+Extend Local Development Gateway so a participating Docker Compose project can
+expose hostname-routed database services with the same simple declarative
+integration it already uses for HTTP services.
 
-For WRAP, adding database routing should require only a small change to `docker-compose.development.gateway.yml`. WRAP must not implement address allocation, routing, DNS, host-file management, startup orchestration, or cleanup.
+For WRAP, database routing should require only a small change to
+`docker-compose.development.gateway.yml`. WRAP must not implement address
+allocation, routing, DNS, host-file management, startup orchestration, or
+cleanup.
 
-The desired endpoint is:
+The initial endpoints are:
 
 ```text
-db.<worktree>.wrap.localhost:1433
+db.<worktree>.wrap.localhost:1433 # SQL Server
+db.<worktree>.wrap.localhost:5432 # PostgreSQL
 ```
 
-It must connect from DBeaver to that worktree's `db` container on internal port `1433`.
+Each must connect from DBeaver to that worktree's labelled database container.
 
 ## Consumer Contract
 
@@ -27,6 +33,7 @@ services:
       - default
       - local-gateway
     labels:
+      - "local-gateway.tcp.driver=sql_server"
       - "local-gateway.tcp.hostname=db.${GATEWAY_HOSTNAME}"
       - "local-gateway.tcp.port=1433"
 
@@ -68,32 +75,31 @@ All implementation belongs in this repository. The gateway must:
 ## Implemented Routing Shape
 
 Every `.localhost` name intentionally resolves to loopback on both Linux and
-Windows. That means a cross-platform solution cannot distinguish worktrees by
-destination IP, and SQL Server TDS has no HTTP `Host` header for Traefik.
-
-The remaining gateway-owned discriminator is the TLS Server Name Indication
-sent by encrypted SQL Server clients. With TDS 7.x, the TLS ClientHello is
-wrapped inside TDS PRELOGIN packets, so a small TDS-aware router must expose
-the SNI before selecting the labelled backend:
+Windows. A shared port therefore requires a protocol-level hostname. The
+gateway uses one Docker-label discovery path and a small driver for each
+supported database handshake:
 
 ```text
 DBeaver
-  -> db.<worktree>.wrap.localhost:1433
-  -> Docker publishes gateway TDS router on 127.0.0.1:1433
-  -> router mediates TDS PRELOGIN and reads wrapped TLS SNI
+  -> db.<worktree>.wrap.localhost:<driver port>
+  -> Docker publishes the database router on loopback
+  -> driver reads the encrypted handshake hostname
   -> router selects the matching Docker label
-  -> router forwards the encrypted stream to <worktree> db:1433
+  -> router forwards the database stream to the labelled container
 ```
 
-Traefik remains responsible for HTTP. The dedicated TDS router forwards the
-selected stream directly because Traefik cannot expose TLS SNI wrapped inside
-TDS PRELOGIN.
+The `sql_server` driver mediates TDS PRELOGIN, reads SNI from the wrapped TLS
+ClientHello, then preserves the encrypted client/backend stream. The
+`postgresql` driver accepts PostgreSQL's SSLRequest, terminates the client TLS
+session to obtain SNI, and forwards the plaintext PostgreSQL stream on the
+private Docker network.
 
-Encrypted DBeaver connections are required so the requested hostname is
-present as TLS SNI. A smoke test with DBeaver's bundled Microsoft JDBC driver
-proved that the driver sends `db.<worktree>.wrap.localhost`, the router can
-select a second running SQL Server container, and the encrypted login exchange
-continues to that selected container.
+Traefik remains responsible for HTTP. It cannot inspect TLS SNI wrapped inside
+TDS PRELOGIN or the TLS handshake that follows a PostgreSQL SSLRequest.
+
+Encrypted connections are required so the requested hostname is present as
+TLS SNI. The router supports only the handshake framing required to select a
+backend; it is not a database protocol implementation.
 
 ## Hostname Contract
 
@@ -104,6 +110,7 @@ continues to that selected container.
   - `mail.<worktree>.wrap.localhost`
 - SQL Server is:
   - `db.<worktree>.wrap.localhost`
+- PostgreSQL uses the same hostname on port `5432`.
 - Do not migrate consumers to `.test`, `.alt`, `.local`, `home.arpa`, or an externally registered domain as part of this issue.
 - Do not require host resolver configuration; `.localhost` must retain its native loopback behavior.
 
@@ -115,7 +122,8 @@ continues to that selected container.
 - Do not expose SQL Server on `0.0.0.0` or a LAN interface.
 - Do not require privileged host integration.
 - Do not grant a long-running container unrestricted write access to arbitrary host files.
-- The TDS router receives the same read-only Docker socket already required by Traefik so it can resolve labels to current container addresses.
+- The database router receives the same read-only Docker socket already required by Traefik so it can resolve labels to current container addresses.
+- SQL Server remains encrypted end to end. PostgreSQL is plaintext only inside the private Docker network after the gateway terminates client TLS.
 
 ## Lifecycle
 
@@ -126,44 +134,61 @@ continues to that selected container.
 
 ## Compatibility
 
-- DBeaver connects using host `db.<worktree>.wrap.localhost` and port `1433`.
-- SQL Server TDS is treated as raw TCP; the consumer must not need an HTTP shim.
-- Concurrent routed databases must use compatible PRELOGIN encryption settings because the client receives that negotiation response before its TLS hostname identifies the backend.
+- DBeaver connects to `db.<worktree>.wrap.localhost` on `1433` for SQL Server
+  or `5432` for PostgreSQL.
+- SQL Server clients must enable encryption and trust the development server
+  certificate.
+- PostgreSQL clients must use SSL mode `require`, send SNI, and permit the
+  gateway's generated development certificate.
+- Concurrent SQL Server routes must use compatible PRELOGIN encryption
+  settings because the client receives a provisional backend's negotiation
+  response before SNI identifies the final backend.
+- PostgreSQL backends must accept a plaintext connection from the private
+  `local-gateway` Docker network.
 - Existing browser routes through Traefik on `127.0.0.1:80` remain unchanged.
-- Multiple active WRAP worktrees can all use internal port `1433` simultaneously.
-- Other hostname-routed protocols may use Traefik TLS SNI or their own protocol-aware router; this change intentionally implements only SQL Server TDS.
+- Multiple active worktrees can use each database driver's standard port
+  simultaneously.
+- Adding another protocol requires another explicit driver; ports are never
+  inferred from labels.
 
 ## Acceptance Scenarios
 
-1. Start WRAP worktree A and worktree B with identical `db` labels and internal port `1433`.
-2. Connect a DBeaver-equivalent raw TCP client to `db.<A>.wrap.localhost:1433`; observe bytes reaching only A's database service.
-3. Connect to `db.<B>.wrap.localhost:1433`; observe bytes reaching only B's database service.
-4. Keep both connections possible concurrently without choosing alternate host ports.
-5. Recreate A's database container; the same hostname routes to the replacement container.
-6. Stop A; A's route disappears while B remains available.
-7. Verify `<A>.wrap.localhost`, `api.<A>.wrap.localhost`, and `mail.<A>.wrap.localhost` still use their existing HTTP routes.
-8. Verify listeners are loopback-only and unavailable from a non-loopback interface.
-9. Demonstrate the WRAP integration as a Compose-only diff in `docker-compose.development.gateway.yml`.
+1. Start worktree A and worktree B with the same database driver and internal
+   port.
+2. Connect a DBeaver-equivalent client to
+   `db.<A>.wrap.localhost:<driver port>`; observe bytes reaching only A.
+3. Connect to `db.<B>.wrap.localhost:<driver port>`; observe bytes reaching
+   only B.
+4. Repeat the routing check for both `sql_server` and `postgresql`.
+5. Keep both connections possible concurrently without alternate host ports.
+6. Recreate A's database container; the same hostname routes to its replacement.
+7. Stop A; A's route disappears while B remains available.
+8. Verify existing HTTP hostnames still use Traefik.
+9. Verify every host listener is loopback-only.
+10. Demonstrate consumer integration as a Compose-only diff.
 
 ## Non-Goals
 
-- Changing WRAP application code or its development wrapper.
-- Requiring every consumer to run its own DNS or proxy service.
+- Changing consumer application code or development wrappers.
+- Requiring consumers to run DNS, a proxy, or host installation.
 - Assigning a different database port to each worktree.
 - Publishing development routes outside the machine.
-- Replacing existing HTTP routing when it already works.
-- Building a generic service mesh or a general-purpose SQL proxy beyond the
-  minimum PRELOGIN and TLS-SNI routing needed here.
+- Replacing existing HTTP routing.
+- Building a generic service mesh or full database proxy.
+- Supporting plaintext clients, PostgreSQL direct TLS negotiation, or database
+  protocols without an implemented driver.
 
 ## Verification Gate
 
-Do not mark PR #22 ready until runnable checks prove all four facts:
+Do not merge PR #22 until runnable checks prove:
 
 1. Two exact `db.<worktree>.wrap.localhost` names select different labelled
-   containers on port `1433` from the DBeaver Microsoft JDBC driver.
+   containers for SQL Server and PostgreSQL.
 2. The gateway discovers, updates, and removes routes from Docker labels
    without consumer lifecycle code.
-3. No host resolver, administrator/root, or operating-system service setup is
+3. Fragmented and oversized handshakes, stalled clients, duplicate routes,
+   unsupported drivers, and unreachable provisional backends fail safely.
+4. No host resolver, administrator/root, or operating-system service setup is
    required on Linux or Windows.
-4. Existing HTTP routes remain unchanged and every published listener is
+5. Existing HTTP routes remain unchanged and every published listener is
    loopback-only.

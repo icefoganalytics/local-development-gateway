@@ -22,21 +22,21 @@ services:
     networks:
       - local-gateway
 
-  tds-router:
+  database-router:
     image: ruby:3.4.7-alpine
     command:
       - ruby
       - -I/app/lib
       - -rlocal_development_gateway
       - -e
-      - LocalDevelopmentGateway::TdsRouter.run
+      - LocalDevelopmentGateway::DatabaseRouter.run
     healthcheck:
       test:
         - CMD
         - ruby
         - -rsocket
         - -e
-        - TCPSocket.new("127.0.0.1", 1433).close
+        - TCPSocket.new("127.0.0.1", 1433).close; TCPSocket.new("127.0.0.1", 5432).close
       interval: 1s
       timeout: 3s
       retries: 30
@@ -45,6 +45,7 @@ services:
       local-gateway: "true"
     ports:
       - "127.0.0.1:1433:1433"
+      - "127.0.0.1:5432:5432"
     restart: unless-stopped
     volumes:
       - ./lib:/app/lib:ro

@@ -17,7 +17,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       router_ids: "router-id\n",
       obsolete_ids: "",
       health: "healthy\n",
-      attached: "gateway-id\tlocal-gateway\tgateway\ttrue\nrouter-id\tlocal-gateway\ttds-router\ttrue\n",
+      attached: "gateway-id\tlocal-gateway\tgateway\ttrue\nrouter-id\tlocal-gateway\tdatabase-router\ttrue\n",
       all_attached: attached,
       compose_error: nil,
       startup_error: nil
@@ -46,9 +46,14 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       when "ps"
         if args.include?("--format")
           (args.include?("--all") ? @all_attached : @attached)
-        elsif args.include?("label=com.docker.compose.service=dns")
+        elsif args.any? do |arg|
+              %w[
+                label=com.docker.compose.service=dns
+                label=com.docker.compose.service=tds-router
+              ].include?(arg)
+            end
           @obsolete_ids
-        elsif args.include?("label=com.docker.compose.service=tds-router")
+        elsif args.include?("label=com.docker.compose.service=database-router")
           @router_ids
         else
           @gateway_ids
@@ -85,7 +90,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     contents = Gem::Package.new(gem_path).contents
     assert_includes contents, "config/traefik.yml"
     assert_includes contents, "docker-compose.yml"
-    assert_includes contents, "lib/local_development_gateway/tds_router.rb"
+    assert_includes contents, "lib/local_development_gateway/database_router.rb"
   end
 
   def test_installed_gem_resolves_packaged_asset_paths
