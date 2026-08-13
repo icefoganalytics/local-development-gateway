@@ -7,6 +7,7 @@ module LocalDevelopmentGateway
   PROJECT_NAME = "local-gateway"
   NETWORK_NAME = "local-gateway"
   SERVICE_NAME = "gateway"
+  DNS_SERVICE_NAME = "dns"
   GATEWAY_LABEL = "local-gateway"
   ASSET_ROOT = File.expand_path("..", __dir__)
   COMPOSE_FILE = File.join(ASSET_ROOT, "docker-compose.yml")
@@ -14,6 +15,8 @@ module LocalDevelopmentGateway
 
   class Error < StandardError
   end
+
+  require_relative "local_development_gateway/tcp_endpoints"
 
   class DockerError < Error
     attr_reader :command, :output
@@ -49,12 +52,14 @@ module LocalDevelopmentGateway
 
     def initialize(
       runner: Docker.new,
+      tcp_endpoints: TcpEndpoints.new,
       timeout: 30,
       poll_interval: 0.25,
       sleeper: ->(seconds) { sleep seconds },
       clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
     )
       @runner = runner
+      @tcp_endpoints = tcp_endpoints
       @timeout = timeout
       @poll_interval = poll_interval
       @sleeper = sleeper
@@ -64,6 +69,7 @@ module LocalDevelopmentGateway
     def ensure_running(*compose_args)
       return :reused if compose_args.empty? && ready?
 
+      @tcp_endpoints.ensure_hosts_file
       compose("up", "-d", "--remove-orphans", *compose_args)
       wait_until_ready
       :started
@@ -73,8 +79,11 @@ module LocalDevelopmentGateway
 
     def ready?
       network_exists? &&
-        gateway_container_ids(status: "running").any? do |id|
-          healthy_container?(id)
+        [SERVICE_NAME, DNS_SERVICE_NAME].all? do |service|
+          gateway_container_ids(
+            service: service,
+            status: "running"
+          ).any? { |id| healthy_container?(id) }
         end
     end
 
@@ -153,7 +162,7 @@ module LocalDevelopmentGateway
       network_exists? && !gateway_container_ids.empty?
     end
 
-    def gateway_container_ids(status: nil)
+    def gateway_container_ids(service: SERVICE_NAME, status: nil)
       args = ["ps"]
       args << "--all" unless status
       args.concat(
@@ -163,7 +172,7 @@ module LocalDevelopmentGateway
           "--filter",
           "label=com.docker.compose.project=#{PROJECT_NAME}",
           "--filter",
-          "label=com.docker.compose.service=#{SERVICE_NAME}",
+          "label=com.docker.compose.service=#{service}",
           "--filter",
           "label=#{GATEWAY_LABEL}=true"
         ]
@@ -206,8 +215,8 @@ module LocalDevelopmentGateway
     end
 
     def gateway_container?(container)
-      container[:project] == PROJECT_NAME &&
-        container[:service] == SERVICE_NAME && container[:label] == "true"
+      [SERVICE_NAME, DNS_SERVICE_NAME].include?(container[:service]) &&
+        container[:project] == PROJECT_NAME && container[:label] == "true"
     end
   end
 
@@ -310,6 +319,14 @@ module LocalDevelopmentGateway
 
     def stop_if_unused
       Client.new.stop_if_unused
+    end
+
+    def tcp_endpoint(worktree: Dir.pwd, service: "db")
+      TcpEndpoints.new.register(worktree: worktree, service: service)
+    end
+
+    def release_tcp_endpoint(worktree: Dir.pwd, service: "db")
+      TcpEndpoints.new.release(worktree: worktree, service: service)
     end
   end
 end
