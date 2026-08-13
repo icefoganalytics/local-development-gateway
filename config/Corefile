@@ -1,5 +1,0 @@
-gateway.test:53 {
-  hosts /var/lib/local-development-gateway/hosts {
-    reload 1s
-  }
-}

@@ -16,7 +16,7 @@ Gem::Specification.new do |spec|
   spec.files = Dir[
     "README.md",
     "docker-compose.yml",
-    "config/*",
+    "config/traefik.yml",
     "bin/local-development-gateway",
     "lib/**/*.rb",
   ]
