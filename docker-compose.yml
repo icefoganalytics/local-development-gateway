@@ -22,29 +22,6 @@ services:
     networks:
       - local-gateway
 
-  dns:
-    image: coredns/coredns:1.12.1
-    command:
-      - -conf
-      - /etc/coredns/Corefile
-    healthcheck:
-      test: ["CMD", "/coredns", "-version"]
-      interval: 1s
-      timeout: 3s
-      retries: 30
-      start_period: 1s
-    labels:
-      local-gateway: "true"
-    ports:
-      - "127.0.0.1:53:53/tcp"
-      - "127.0.0.1:53:53/udp"
-    restart: unless-stopped
-    volumes:
-      - ./config/Corefile:/etc/coredns/Corefile:ro
-      - ${LOCAL_DEVELOPMENT_GATEWAY_STATE_DIR:-${HOME}/.local/state/local-development-gateway}:/var/lib/local-development-gateway:ro
-    networks:
-      - local-gateway
-
 networks:
   local-gateway:
     name: local-gateway
