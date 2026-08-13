@@ -118,18 +118,30 @@ sudo resolvectl domain lo '~gateway.test'
 ```
 
 Participating projects allocate an endpoint through the gem instead of choosing
-a host port:
+a host port. For example, WRAP's development command would acquire the endpoint
+before bringing up its `db` service:
 
 ```ruby
 endpoint = LocalDevelopmentGateway.tcp_endpoint(service: "db")
-# endpoint.address  # 127.77.0.1
-# endpoint.hostname # db.issue-567.gateway.test
+ENV["LOCAL_DB_BIND_ADDRESS"] = endpoint.address
+# docker compose up -d db
 ```
 
-Bind the project's TCP service to `endpoint.address` and its standard internal
-port. Another worktree receives a different `127.77.0.x` address and can use
-the same port. After that project's Compose service has stopped, release the
-endpoint:
+Its development Compose file would publish the standard SQL Server port on that
+allocated address:
+
+```yaml
+services:
+  db:
+    ports:
+      - "${LOCAL_DB_BIND_ADDRESS:?set by bin/dev}:1433:1433"
+```
+
+Another worktree receives a different `127.77.0.x` address, so it can use the
+same port. DBeaver connects to `endpoint.hostname` on port `1433`, for example
+`db.issue-567.gateway.test:1433`.
+
+After `docker compose down db` succeeds, the project releases the endpoint:
 
 ```ruby
 LocalDevelopmentGateway.release_tcp_endpoint(service: "db")
