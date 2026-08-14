@@ -3,7 +3,7 @@
 require "json"
 require "socket"
 
-require_relative "wire"
+require "local_development_gateway/database_router/wire"
 
 module LocalDevelopmentGateway
   class DatabaseRouter::DockerApi

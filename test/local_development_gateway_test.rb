@@ -5,7 +5,7 @@ require "open3"
 require "rbconfig"
 require "rubygems/package"
 require "tmpdir"
-require_relative "../lib/local_development_gateway"
+require "local_development_gateway"
 
 class LocalDevelopmentGatewayTest < Minitest::Test
   class FakeRunner

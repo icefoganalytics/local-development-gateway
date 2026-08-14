@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "open3"
-require_relative "local_development_gateway/version"
+require "local_development_gateway/version"
 
 module LocalDevelopmentGateway
   PROJECT_NAME = "local-gateway"
@@ -16,7 +16,7 @@ module LocalDevelopmentGateway
   class Error < StandardError
   end
 
-  require_relative "local_development_gateway/database_router"
+  require "local_development_gateway/database_router"
 
   class DockerError < Error
     attr_reader :command, :output

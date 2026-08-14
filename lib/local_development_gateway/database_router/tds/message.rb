@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../wire"
+require "local_development_gateway/database_router/wire"
 
 module LocalDevelopmentGateway
   module DatabaseRouter::Tds

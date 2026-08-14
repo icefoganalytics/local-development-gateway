@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "tls_byte_reader"
+require "local_development_gateway/database_router/tds/tls_byte_reader"
 
 module LocalDevelopmentGateway
   class DatabaseRouter::Tds::TlsClientHello

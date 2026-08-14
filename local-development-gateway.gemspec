@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
-require_relative "lib/local_development_gateway/version"
+$LOAD_PATH.unshift File.expand_path("lib", __dir__)
+require "local_development_gateway/version"
 
 Gem::Specification.new do |spec|
   spec.name = "local-development-gateway"

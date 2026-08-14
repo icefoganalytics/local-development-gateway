@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "docker_api"
+require "local_development_gateway/database_router/docker_api"
 
 module LocalDevelopmentGateway
   class DatabaseRouter::DockerRoutes

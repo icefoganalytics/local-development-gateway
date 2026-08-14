@@ -2,7 +2,7 @@
 
 require "minitest/autorun"
 require "socket"
-require_relative "../../../lib/local_development_gateway"
+require "local_development_gateway"
 
 class SqlServerDriverTest < Minitest::Test
   Router = LocalDevelopmentGateway::DatabaseRouter

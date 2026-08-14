@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
-require_relative "../../lib/local_development_gateway"
+require "local_development_gateway"
 
 class DockerRoutesTest < Minitest::Test
   Router = LocalDevelopmentGateway::DatabaseRouter

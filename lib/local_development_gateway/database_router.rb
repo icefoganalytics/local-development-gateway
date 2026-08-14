@@ -97,6 +97,6 @@ module LocalDevelopmentGateway
   end
 end
 
-require_relative "database_router/docker_routes"
-require_relative "database_router/drivers/sql_server_driver"
-require_relative "database_router/drivers/postgre_sql_driver"
+require "local_development_gateway/database_router/docker_routes"
+require "local_development_gateway/database_router/drivers/sql_server_driver"
+require "local_development_gateway/database_router/drivers/postgre_sql_driver"

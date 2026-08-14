@@ -3,7 +3,7 @@
 require "minitest/autorun"
 require "openssl"
 require "socket"
-require_relative "../../../lib/local_development_gateway"
+require "local_development_gateway"
 
 class PostgreSqlDriverTest < Minitest::Test
   Router = LocalDevelopmentGateway::DatabaseRouter

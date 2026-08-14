@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require_relative "../tds/message"
-require_relative "../tds/tls_client_hello"
+require "local_development_gateway/database_router/tds/message"
+require "local_development_gateway/database_router/tds/tls_client_hello"
 
 module LocalDevelopmentGateway
   class DatabaseRouter::SqlServerDriver
