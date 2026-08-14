@@ -7,6 +7,7 @@ module LocalDevelopmentGateway
   class DatabaseRouter
     CONNECT_TIMEOUT = 3
     MAX_CONNECTIONS = 128
+    Route = Data.define(:driver, :hostname, :port, :target_address)
 
     def self.run
       new.run
@@ -96,14 +97,6 @@ module LocalDevelopmentGateway
   end
 end
 
-require_relative "database_router/route"
-require_relative "database_router/wire"
-require_relative "database_router/docker_api"
 require_relative "database_router/docker_routes"
-require_relative "database_router/tds_packet"
-require_relative "database_router/tds_message"
-require_relative "database_router/tls_byte_reader"
-require_relative "database_router/tls_client_hello"
-require_relative "database_router/sql_server_driver"
-require_relative "database_router/postgre_sql_certificate"
-require_relative "database_router/postgre_sql_driver"
+require_relative "database_router/drivers/sql_server_driver"
+require_relative "database_router/drivers/postgre_sql_driver"

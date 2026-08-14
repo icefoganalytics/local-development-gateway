@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module LocalDevelopmentGateway
-  class DatabaseRouter::TlsByteReader
+  class DatabaseRouter::Tds::TlsByteReader
     def initialize(bytes)
       @bytes = bytes
       @offset = 0

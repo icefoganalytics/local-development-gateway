@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require_relative "../tds/message"
+require_relative "../tds/tls_client_hello"
+
 module LocalDevelopmentGateway
   class DatabaseRouter::SqlServerDriver
     NAME = "sql_server"
@@ -15,13 +18,13 @@ module LocalDevelopmentGateway
 
     def connect(client, routes, connector:)
       deadline = DatabaseRouter::Wire.deadline
-      prelogin = DatabaseRouter::TdsMessage.read(client, deadline: deadline)
+      prelogin = DatabaseRouter::Tds::Message.read(client, deadline: deadline)
       if routes.empty?
         raise Error, "No labelled sql_server routes are available"
       end
       provisional, target, response =
         negotiate(routes, prelogin, connector, deadline)
-      DatabaseRouter::TdsMessage.write(client, response)
+      DatabaseRouter::Tds::Message.write(client, response)
 
       hostname, messages = read_client_hello(client, deadline)
       selected = routes.find { |route| route.hostname == hostname }
@@ -30,12 +33,12 @@ module LocalDevelopmentGateway
       if selected != provisional
         target.close
         target = connector.call(selected)
-        DatabaseRouter::TdsMessage.write(target, prelogin)
-        DatabaseRouter::TdsMessage.read(target, deadline: deadline)
+        DatabaseRouter::Tds::Message.write(target, prelogin)
+        DatabaseRouter::Tds::Message.read(target, deadline: deadline)
       end
 
       messages.each do |message|
-        DatabaseRouter::TdsMessage.write(target, message)
+        DatabaseRouter::Tds::Message.write(target, message)
       end
       [client, target]
     rescue StandardError
@@ -48,11 +51,11 @@ module LocalDevelopmentGateway
     def negotiate(routes, prelogin, connector, deadline)
       routes.each do |route|
         target = connector.call(route)
-        DatabaseRouter::TdsMessage.write(target, prelogin)
+        DatabaseRouter::Tds::Message.write(target, prelogin)
         return [
           route,
           target,
-          DatabaseRouter::TdsMessage.read(target, deadline: deadline)
+          DatabaseRouter::Tds::Message.read(target, deadline: deadline)
         ]
       rescue Error, EOFError, IOError, SystemCallError
         target&.close
@@ -61,10 +64,10 @@ module LocalDevelopmentGateway
     end
 
     def read_client_hello(client, deadline)
-      hello = DatabaseRouter::TlsClientHello.new
+      hello = DatabaseRouter::Tds::TlsClientHello.new
       messages = []
       loop do
-        message = DatabaseRouter::TdsMessage.read(client, deadline: deadline)
+        message = DatabaseRouter::Tds::Message.read(client, deadline: deadline)
         messages << message
         hostname = hello.append(message.payload)
         return hostname, messages if hostname

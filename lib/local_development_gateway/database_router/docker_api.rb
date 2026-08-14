@@ -3,6 +3,8 @@
 require "json"
 require "socket"
 
+require_relative "wire"
+
 module LocalDevelopmentGateway
   class DatabaseRouter::DockerApi
     MAX_RESPONSE_BYTES = 8 * 1024 * 1024

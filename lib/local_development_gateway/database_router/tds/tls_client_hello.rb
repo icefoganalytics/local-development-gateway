@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
+require_relative "tls_byte_reader"
+
 module LocalDevelopmentGateway
-  class DatabaseRouter::TlsClientHello
+  class DatabaseRouter::Tds::TlsClientHello
     MAX_BYTES = 128 * 1024
     MAX_RECORD_BYTES = (16 * 1024) + 2048
 
@@ -47,20 +49,20 @@ module LocalDevelopmentGateway
     def server_name
       length = uint24(@handshake, 1)
       reader =
-        DatabaseRouter::TlsByteReader.new(@handshake.byteslice(4, length))
+        DatabaseRouter::Tds::TlsByteReader.new(@handshake.byteslice(4, length))
       reader.read(2 + 32)
       reader.vector8
       reader.vector16
       reader.vector8
-      extensions = DatabaseRouter::TlsByteReader.new(reader.vector16)
+      extensions = DatabaseRouter::Tds::TlsByteReader.new(reader.vector16)
       until extensions.empty?
         type = extensions.uint16
         data = extensions.vector16
         next unless type.zero?
 
         names =
-          DatabaseRouter::TlsByteReader.new(
-            DatabaseRouter::TlsByteReader.new(data).vector16
+          DatabaseRouter::Tds::TlsByteReader.new(
+            DatabaseRouter::Tds::TlsByteReader.new(data).vector16
           )
         until names.empty?
           name_type = names.uint8

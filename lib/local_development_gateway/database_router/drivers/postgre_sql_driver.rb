@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "openssl"
+require_relative "../wire"
+require_relative "postgre_sql_certificate"
 
 module LocalDevelopmentGateway
   class DatabaseRouter::PostgreSqlDriver

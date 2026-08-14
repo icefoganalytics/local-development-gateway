@@ -95,7 +95,7 @@ class DatabaseRouterTest < Minitest::Test
 
   def test_reads_a_fragmented_tls_client_hello
     hello = tls_client_hello("db.issue-b.wrap.localhost")
-    parser = Router::TlsClientHello.new
+    parser = Router::Tds::TlsClientHello.new
 
     refute parser.append(hello.byteslice(0, 10))
     assert_equal "db.issue-b.wrap.localhost",
@@ -103,11 +103,11 @@ class DatabaseRouterTest < Minitest::Test
   end
 
   def test_rejects_oversized_tls_client_hello
-    parser = Router::TlsClientHello.new
+    parser = Router::Tds::TlsClientHello.new
 
     error =
       assert_raises(LocalDevelopmentGateway::Error) do
-        parser.append("x" * (Router::TlsClientHello::MAX_BYTES + 1))
+        parser.append("x" * (Router::Tds::TlsClientHello::MAX_BYTES + 1))
       end
 
     assert_equal "TLS ClientHello is too large", error.message
@@ -261,7 +261,7 @@ class DatabaseRouterTest < Minitest::Test
       received << read_tds_message(connection)
       connection.write(tds_message(prelogin_response))
       if selected
-        parser = Router::TlsClientHello.new
+        parser = Router::Tds::TlsClientHello.new
         hostname = nil
         hostname ||= parser.append(read_tds_message(connection)) until hostname
         received << hostname

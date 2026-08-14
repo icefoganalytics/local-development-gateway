@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "docker_api"
+
 module LocalDevelopmentGateway
   class DatabaseRouter::DockerRoutes
     NETWORK_NAME = "local-gateway"
