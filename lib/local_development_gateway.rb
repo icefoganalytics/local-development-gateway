@@ -1,19 +1,22 @@
 # frozen_string_literal: true
 
 require "open3"
-require_relative "local_development_gateway/version"
+require "local_development_gateway/version"
 
 module LocalDevelopmentGateway
   PROJECT_NAME = "local-gateway"
   NETWORK_NAME = "local-gateway"
-  SERVICE_NAME = "gateway"
+  SERVICE_NAMES = %w[gateway database-router].freeze
   GATEWAY_LABEL = "local-gateway"
+  OBSOLETE_SERVICE_NAMES = %w[dns tds-router].freeze
   ASSET_ROOT = File.expand_path("..", __dir__)
   COMPOSE_FILE = File.join(ASSET_ROOT, "docker-compose.yml")
   TRAEFIK_CONFIG_FILE = File.join(ASSET_ROOT, "config", "traefik.yml")
 
   class Error < StandardError
   end
+
+  require "local_development_gateway/database_router"
 
   class DockerError < Error
     attr_reader :command, :output
@@ -72,9 +75,12 @@ module LocalDevelopmentGateway
     alias start ensure_running
 
     def ready?
-      network_exists? &&
-        gateway_container_ids(status: "running").any? do |id|
-          healthy_container?(id)
+      network_exists? && obsolete_services_absent? &&
+        SERVICE_NAMES.all? do |service|
+          gateway_container_ids(
+            service: service,
+            status: "running"
+          ).any? { |id| healthy_container?(id) }
         end
     end
 
@@ -150,10 +156,13 @@ module LocalDevelopmentGateway
     end
 
     def gateway_exists?
-      network_exists? && !gateway_container_ids.empty?
+      network_exists? &&
+        SERVICE_NAMES.any? do |service|
+          !gateway_container_ids(service: service).empty?
+        end
     end
 
-    def gateway_container_ids(status: nil)
+    def gateway_container_ids(service:, status: nil)
       args = ["ps"]
       args << "--all" unless status
       args.concat(
@@ -163,7 +172,7 @@ module LocalDevelopmentGateway
           "--filter",
           "label=com.docker.compose.project=#{PROJECT_NAME}",
           "--filter",
-          "label=com.docker.compose.service=#{SERVICE_NAME}",
+          "label=com.docker.compose.service=#{service}",
           "--filter",
           "label=#{GATEWAY_LABEL}=true"
         ]
@@ -171,6 +180,12 @@ module LocalDevelopmentGateway
       args.push("--filter", "status=#{status}") if status
       output = @runner.call(*args, "--quiet")
       output.lines.map(&:strip).reject(&:empty?)
+    end
+
+    def obsolete_services_absent?
+      OBSOLETE_SERVICE_NAMES.all? do |service|
+        gateway_container_ids(service: service).empty?
+      end
     end
 
     def healthy_container?(id)
@@ -207,7 +222,8 @@ module LocalDevelopmentGateway
 
     def gateway_container?(container)
       container[:project] == PROJECT_NAME &&
-        container[:service] == SERVICE_NAME && container[:label] == "true"
+        SERVICE_NAMES.include?(container[:service]) &&
+        container[:label] == "true"
     end
   end
 

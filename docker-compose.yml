@@ -22,6 +22,37 @@ services:
     networks:
       - local-gateway
 
+  database-router:
+    image: ruby:3.4.7-alpine
+    command:
+      - ruby
+      - -I/app/lib
+      - -rlocal_development_gateway
+      - -e
+      - LocalDevelopmentGateway::DatabaseRouter.run
+    healthcheck:
+      test:
+        - CMD
+        - ruby
+        - -rsocket
+        - -e
+        - TCPSocket.new("127.0.0.1", 1433).close; TCPSocket.new("127.0.0.1", 5432).close
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 1s
+    labels:
+      local-gateway: "true"
+    ports:
+      - "127.0.0.1:1433:1433"
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+    volumes:
+      - ./lib:/app/lib:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - local-gateway
+
 networks:
   local-gateway:
     name: local-gateway

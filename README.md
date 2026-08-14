@@ -66,7 +66,7 @@ Consuming projects do not need a gateway checkout. Add the released gem to
 their bundle and pin the compatible minor version:
 
 ```ruby
-gem "local-development-gateway", "~> 0.1"
+gem "local-development-gateway", "~> 0.2"
 ```
 
 Published gem: [`local-development-gateway`](https://rubygems.org/gems/local-development-gateway)
@@ -83,7 +83,7 @@ bundle exec local-development-gateway down
 
 `local-development-gateway` uses the installed asset path, the
 `local-gateway` Compose project and network labels, and the pinned minimum Ruby
-version declared by the gem. The `~> 0.1` constraint follows the consuming
+version declared by the gem. The `~> 0.2` constraint follows the consuming
 project's published Gemfile.
 The repository's `bin/dev` is only a thin wrapper around this executable API.
 
@@ -106,6 +106,56 @@ command that must not start a missing gateway, pass
 `ensure_running: false`; the block still runs and unused-gateway cleanup is
 attempted.
 
+## Worktree database services
+
+The gateway includes protocol drivers for encrypted SQL Server and PostgreSQL
+connections. No host agent, DNS server, administrator privileges, or
+`/etc/hosts` changes are required.
+
+A participating project only joins its existing database service to
+`local-gateway` and adds three labels:
+
+```yaml
+services:
+  db:
+    networks:
+      - default
+      - local-gateway
+    labels:
+      - "local-gateway.tcp.driver=sql_server"
+      - "local-gateway.tcp.hostname=db.${GATEWAY_HOSTNAME:-wrap.localhost}"
+      - "local-gateway.tcp.port=1433"
+
+networks:
+  local-gateway:
+    external: true
+    name: local-gateway
+```
+
+For a worktree whose `GATEWAY_HOSTNAME` is `issue-567.wrap.localhost`, DBeaver
+connects to `db.issue-567.wrap.localhost` on the driver's standard port:
+
+| Driver label | Host port | Client requirement |
+| --- | ---: | --- |
+| `sql_server` | `1433` | Encryption enabled and **Trust server certificate** selected |
+| `postgresql` | `5432` | SSL mode `require` |
+
+Use the database container's actual internal port in
+`local-gateway.tcp.port`; it does not need to match the host listener.
+
+All `.localhost` names resolve to loopback. The gateway publishes loopback-only
+listeners, discovers labelled containers through Docker, and uses the database
+protocol's encrypted handshake to select the hostname-labelled container.
+Container replacements and stopped routes require no consumer lifecycle code
+or cleanup.
+
+SQL Server encryption remains end to end through the router. The PostgreSQL
+driver terminates client TLS at the gateway and forwards the resulting
+PostgreSQL stream over the private Docker network because PostgreSQL sends its
+TLS hostname only after the gateway accepts its SSL request. See
+[`docs/architecture/local-tcp-routing.md`](docs/architecture/local-tcp-routing.md)
+for the complete contract and security boundary.
+
 ## Development checks
 
 Install the locked development tools with `bundle install`. Run the Ruby
@@ -116,10 +166,17 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   Gemfile \
   Rakefile \
   lib/local_development_gateway.rb \
+  lib/local_development_gateway/database_router.rb \
+  lib/local_development_gateway/database_router/*.rb \
+  lib/local_development_gateway/database_router/drivers/*.rb \
+  lib/local_development_gateway/database_router/tds/*.rb \
   lib/local_development_gateway/version.rb \
   bin/dev \
   bin/local-development-gateway \
-  test/local_development_gateway_test.rb
+  test/*.rb \
+  test/database_router/*.rb \
+  test/database_router/drivers/*.rb \
+  test/database_router/tds/*.rb
 rake test
 ```
 

@@ -5,7 +5,7 @@ require "open3"
 require "rbconfig"
 require "rubygems/package"
 require "tmpdir"
-require_relative "../lib/local_development_gateway"
+require "local_development_gateway"
 
 class LocalDevelopmentGatewayTest < Minitest::Test
   class FakeRunner
@@ -14,14 +14,18 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     def initialize(
       network_labels: "local-gateway\tlocal-gateway\n",
       gateway_ids: "gateway-id\n",
+      router_ids: "router-id\n",
+      obsolete_ids: "",
       health: "healthy\n",
-      attached: "gateway-id\tlocal-gateway\tgateway\ttrue\n",
+      attached: "gateway-id\tlocal-gateway\tgateway\ttrue\nrouter-id\tlocal-gateway\tdatabase-router\ttrue\n",
       all_attached: attached,
       compose_error: nil,
       startup_error: nil
     )
       @network_labels = network_labels
       @gateway_ids = gateway_ids
+      @router_ids = router_ids
+      @obsolete_ids = obsolete_ids
       @health = health
       @attached = attached
       @all_attached = all_attached
@@ -42,6 +46,15 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       when "ps"
         if args.include?("--format")
           (args.include?("--all") ? @all_attached : @attached)
+        elsif args.any? do |arg|
+              %w[
+                label=com.docker.compose.service=dns
+                label=com.docker.compose.service=tds-router
+              ].include?(arg)
+            end
+          @obsolete_ids
+        elsif args.include?("label=com.docker.compose.service=database-router")
+          @router_ids
         else
           @gateway_ids
         end
@@ -54,7 +67,11 @@ class LocalDevelopmentGatewayTest < Minitest::Test
           raise @startup_error
         end
 
-        @gateway_ids = "gateway-id\n" if args.include?("up")
+        if args.include?("up")
+          @gateway_ids = "gateway-id\n"
+          @router_ids = "router-id\n"
+          @obsolete_ids = ""
+        end
         ""
       end
     end
@@ -70,8 +87,10 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       Open3.capture3("gem", "build", spec.loaded_from, "--output", gem_path)
 
     assert status.success?, stderr
-    assert_includes Gem::Package.new(gem_path).contents, "config/traefik.yml"
-    assert_includes Gem::Package.new(gem_path).contents, "docker-compose.yml"
+    contents = Gem::Package.new(gem_path).contents
+    assert_includes contents, "config/traefik.yml"
+    assert_includes contents, "docker-compose.yml"
+    assert_includes contents, "lib/local_development_gateway/database_router.rb"
   end
 
   def test_installed_gem_resolves_packaged_asset_paths
@@ -132,6 +151,13 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
     assert_equal :reused, client(runner).ensure_running
     assert_empty runner.calls.select { |call| call[:args].first == "compose" }
+  end
+
+  def test_recreates_gateway_to_remove_obsolete_services
+    runner = FakeRunner.new(obsolete_ids: "dns-id\n")
+
+    assert_equal :started, client(runner).ensure_running
+    assert runner.calls.any? { |call| call[:args].include?("up") }
   end
 
   def test_starts_and_waits_for_a_ready_gateway
