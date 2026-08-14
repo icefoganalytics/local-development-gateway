@@ -107,10 +107,11 @@ backend; it is not a database protocol implementation.
 `DatabaseRouter` owns listener concurrency, backend connection lifecycle, and
 bidirectional stream forwarding. `DockerApi` and `DockerRoutes` form the
 external Docker boundary and produce validated `Route` values. Behavior-bearing
-classes each have one file: database drivers live under `drivers/`, and TDS
-framing plus its wrapped TLS parsing live under `tds/`. Tiny immutable `Route`
-and TDS `Packet` records stay with the classes that own them rather than
-creating empty standalone subclasses.
+classes each have one file, and directories map to Ruby namespaces: database
+drivers live under `DatabaseRouter::Drivers`, while TDS framing and wrapped TLS
+parsing live under `DatabaseRouter::Tds`. Tiny immutable `Route` and TDS
+`Packet` records stay with the classes that own them rather than creating empty
+standalone subclasses.
 
 Source and test imports resolve from the gem's `lib` load path and start at
 `local_development_gateway`; domain files never traverse sibling paths with
