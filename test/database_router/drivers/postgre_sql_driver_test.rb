@@ -8,12 +8,13 @@ require "local_development_gateway"
 class PostgreSqlDriverTest < Minitest::Test
   Router = LocalDevelopmentGateway::DatabaseRouter
   Route = Router::Route
+  Driver = Router::Drivers::PostgreSqlDriver
 
   def test_terminates_tls_and_proxies_plaintext_to_the_labelled_backend
     server = TCPServer.new("127.0.0.1", 0)
     route = route("db.issue-a.wrap.localhost", server)
     routes = -> { [route] }
-    driver = Router::PostgreSqlDriver.new
+    driver = Driver.new
     router = Router.new(routes: routes, drivers: [driver], servers: {})
     client, gateway = Socket.pair(:UNIX, :STREAM, 0)
     received = Queue.new
@@ -28,7 +29,7 @@ class PostgreSqlDriverTest < Minitest::Test
       end
     router_thread = Thread.new { router.route(gateway, driver) }
 
-    client.write(Router::PostgreSqlDriver::SSL_REQUEST)
+    client.write(Driver::SSL_REQUEST)
     assert_equal "S", client.read(1)
     context = OpenSSL::SSL::SSLContext.new
     context.verify_mode = OpenSSL::SSL::VERIFY_NONE

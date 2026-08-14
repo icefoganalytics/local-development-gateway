@@ -14,7 +14,10 @@ module LocalDevelopmentGateway
     end
 
     def self.drivers
-      @drivers ||= [SqlServerDriver.new, PostgreSqlDriver.new].freeze
+      @drivers ||= [
+        Drivers::SqlServerDriver.new,
+        Drivers::PostgreSqlDriver.new
+      ].freeze
     end
 
     def initialize(

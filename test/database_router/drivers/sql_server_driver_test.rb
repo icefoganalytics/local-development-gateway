@@ -7,6 +7,7 @@ require "local_development_gateway"
 class SqlServerDriverTest < Minitest::Test
   Router = LocalDevelopmentGateway::DatabaseRouter
   Route = Router::Route
+  Driver = Router::Drivers::SqlServerDriver
 
   def test_switches_to_the_sni_labelled_backend
     first_server = TCPServer.new("127.0.0.1", 0)
@@ -17,7 +18,7 @@ class SqlServerDriverTest < Minitest::Test
         route("db.issue-b.wrap.localhost", second_server)
       ]
     end
-    driver = Router::SqlServerDriver.new
+    driver = Driver.new
     router = Router.new(routes: routes, drivers: [driver], servers: {})
     client, gateway = Socket.pair(:UNIX, :STREAM, 0)
     received = Queue.new

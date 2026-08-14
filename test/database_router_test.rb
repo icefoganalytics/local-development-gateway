@@ -12,7 +12,10 @@ class DatabaseRouterTest < Minitest::Test
   end
 
   def test_closed_health_checks_do_not_log_missing_routes
-    [Router::SqlServerDriver.new, Router::PostgreSqlDriver.new].each do |driver|
+    [
+      Router::Drivers::SqlServerDriver.new,
+      Router::Drivers::PostgreSqlDriver.new
+    ].each do |driver|
       client, gateway = Socket.pair(:UNIX, :STREAM, 0)
       router = Router.new(routes: -> { [] }, drivers: [driver], servers: {})
       client.close
