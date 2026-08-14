@@ -1,6 +1,7 @@
 # Local TCP Routing Architecture
 
-Status: SQL Server and PostgreSQL protocol routing implemented in PR #22; user review pending.
+Status: SQL Server and PostgreSQL protocol routing implemented in PR #22 and
+validated on Linux. Windows Docker Desktop validation remains outstanding.
 
 ## Request
 
@@ -198,17 +199,18 @@ instead of sharing a generic fixture layer.
 - Supporting plaintext clients, PostgreSQL direct TLS negotiation, or database
   protocols without an implemented driver.
 
-## Verification Gate
+## Verification Evidence
 
-Do not merge PR #22 until runnable checks prove:
+PR #22 demonstrated:
 
-1. Two exact `db.<worktree>.wrap.localhost` names select different labelled
+1. Two exact `db.<worktree>.wrap.localhost` names selected different labelled
    containers for SQL Server and PostgreSQL.
-2. The gateway discovers, updates, and removes routes from Docker labels
-   without consumer lifecycle code.
+2. Docker-label discovery updated routes without consumer lifecycle code;
+   stopped routes were rejected while surviving routes remained reachable.
 3. Fragmented and oversized handshakes, stalled clients, duplicate routes,
-   unsupported drivers, and unreachable provisional backends fail safely.
-4. No host resolver, administrator/root, or operating-system service setup is
-   required on Linux or Windows.
-5. Existing HTTP routes remain unchanged and every published listener is
+   unsupported drivers, and unreachable provisional backends failed safely.
+4. Linux validation required no host resolver, administrator/root, or
+   operating-system service setup. Windows Docker Desktop was unavailable for
+   equivalent validation.
+5. Existing HTTP routes remained unchanged and every published listener was
    loopback-only.
