@@ -173,8 +173,10 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   lib/local_development_gateway/version.rb \
   bin/dev \
   bin/local-development-gateway \
-  test/database_router_test.rb \
-  test/local_development_gateway_test.rb
+  test/*.rb \
+  test/database_router/*.rb \
+  test/database_router/drivers/*.rb \
+  test/database_router/tds/*.rb
 rake test
 ```
 

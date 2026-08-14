@@ -112,6 +112,10 @@ framing plus its wrapped TLS parsing live under `tds/`. Tiny immutable `Route`
 and TDS `Packet` records stay with the classes that own them rather than
 creating empty standalone subclasses.
 
+The focused tests mirror those boundaries under `test/database_router/`.
+Protocol scenarios keep their literal setup beside the behavior they verify
+instead of sharing a generic fixture layer.
+
 ## Hostname Contract
 
 - Keep the established WRAP hostname family.
