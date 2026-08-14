@@ -101,6 +101,15 @@ Encrypted connections are required so the requested hostname is present as
 TLS SNI. The router supports only the handshake framing required to select a
 backend; it is not a database protocol implementation.
 
+## Code Organization
+
+`DatabaseRouter` owns listener concurrency, backend connection lifecycle, and
+bidirectional stream forwarding. `DockerApi` and `DockerRoutes` form the
+external Docker boundary and produce validated `Route` values. Each database
+driver owns only its protocol-specific negotiation; TDS framing, TLS parsing,
+certificate generation, and bounded socket reads each have one owning class or
+module in `lib/local_development_gateway/database_router/`.
+
 ## Hostname Contract
 
 - Keep the established WRAP hostname family.

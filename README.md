@@ -167,6 +167,7 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   Rakefile \
   lib/local_development_gateway.rb \
   lib/local_development_gateway/database_router.rb \
+  lib/local_development_gateway/database_router/*.rb \
   lib/local_development_gateway/version.rb \
   bin/dev \
   bin/local-development-gateway \

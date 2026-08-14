@@ -23,6 +23,10 @@ class DatabaseRouterTest < Minitest::Test
     end
   end
 
+  def test_builds_default_dependencies_without_starting_listeners
+    assert_instance_of Router, Router.new(servers: {})
+  end
+
   def test_discovers_routes_for_each_database_driver
     containers = [
       container("postgresql", "db.pg.wrap.localhost", "5432", "172.20.0.3"),
@@ -103,7 +107,7 @@ class DatabaseRouterTest < Minitest::Test
 
     error =
       assert_raises(LocalDevelopmentGateway::Error) do
-        parser.append("x" * (Router::MAX_CLIENT_HELLO_BYTES + 1))
+        parser.append("x" * (Router::TlsClientHello::MAX_BYTES + 1))
       end
 
     assert_equal "TLS ClientHello is too large", error.message
