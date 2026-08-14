@@ -88,8 +88,9 @@ DBeaver
   -> router forwards the database stream to the labelled container
 ```
 
-The `sql_server` driver mediates TDS PRELOGIN, reads SNI from the wrapped TLS
-ClientHello, then preserves the encrypted client/backend stream. The
+The `sql_server` driver mediates Tabular Data Stream (TDS) PRELOGIN, reads SNI
+from the wrapped TLS ClientHello, then preserves the encrypted client/backend
+stream. The
 `postgresql` driver accepts PostgreSQL's SSLRequest, terminates the client TLS
 session to obtain SNI, and forwards the plaintext PostgreSQL stream on the
 private Docker network.
@@ -105,10 +106,11 @@ backend; it is not a database protocol implementation.
 
 `DatabaseRouter` owns listener concurrency, backend connection lifecycle, and
 bidirectional stream forwarding. `DockerApi` and `DockerRoutes` form the
-external Docker boundary and produce validated `Route` values. Each database
-driver owns only its protocol-specific negotiation; TDS framing, TLS parsing,
-certificate generation, and bounded socket reads each have one owning class or
-module in `lib/local_development_gateway/database_router/`.
+external Docker boundary and produce validated `Route` values. Behavior-bearing
+classes each have one file: database drivers live under `drivers/`, and TDS
+framing plus its wrapped TLS parsing live under `tds/`. Tiny immutable `Route`
+and TDS `Packet` records stay with the classes that own them rather than
+creating empty standalone subclasses.
 
 ## Hostname Contract
 

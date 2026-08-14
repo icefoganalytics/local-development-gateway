@@ -168,6 +168,8 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   lib/local_development_gateway.rb \
   lib/local_development_gateway/database_router.rb \
   lib/local_development_gateway/database_router/*.rb \
+  lib/local_development_gateway/database_router/drivers/*.rb \
+  lib/local_development_gateway/database_router/tds/*.rb \
   lib/local_development_gateway/version.rb \
   bin/dev \
   bin/local-development-gateway \
