@@ -7,7 +7,9 @@ module LocalDevelopmentGateway
   class DatabaseRouter
     CONNECT_TIMEOUT = 3
     MAX_CONNECTIONS = 128
+    MAX_HANDSHAKES = 128
     Route = Data.define(:driver, :hostname, :port, :target_address)
+    Connection = Data.define(:source, :target, :route)
 
     def self.run
       new.run
@@ -23,10 +25,13 @@ module LocalDevelopmentGateway
     def initialize(
       routes: DockerRoutes.new,
       drivers: self.class.drivers,
-      servers: nil
+      servers: nil,
+      max_connections: MAX_CONNECTIONS
     )
       @routes = routes
       @drivers = drivers
+      @session_slots = SizedQueue.new(max_connections)
+      max_connections.times { @session_slots << true }
       @servers =
         servers ||
           drivers.to_h do |driver|
@@ -35,8 +40,8 @@ module LocalDevelopmentGateway
     end
 
     def run
-      slots = SizedQueue.new(MAX_CONNECTIONS)
-      MAX_CONNECTIONS.times { slots << true }
+      slots = SizedQueue.new(MAX_HANDSHAKES)
+      MAX_HANDSHAKES.times { slots << true }
       @drivers
         .map do |driver|
           Thread.new do
@@ -45,9 +50,7 @@ module LocalDevelopmentGateway
               client = server.accept
               slots.pop
               Thread.new(client) do |connection|
-                route(connection, driver)
-              ensure
-                slots << true
+                route(connection, driver, handshake_slots: slots)
               end
             end
           end
@@ -55,47 +58,45 @@ module LocalDevelopmentGateway
         .each(&:join)
     end
 
-    def route(client, driver)
-      routes = @routes.call.select { |route| route.driver == driver.name }
+    def route(client, driver, handshake_slots: nil)
+      routes = -> do
+        @routes.call.select { |route| route.driver == driver.name }
+      end
+      connection =
+        driver.connect(client, routes: routes, connector: method(:connect))
+      handshake_slots&.push(true)
+      handshake_slots = nil
+      return unless connection
 
-      source, target =
-        driver.connect(client, routes, connector: method(:connect))
-      proxy(source, target)
+      session_slot = @session_slots.pop(true)
+      driver.forward(connection)
     rescue EOFError
       nil
+    rescue ThreadError
+      warn "Database session limit reached"
     rescue Error => error
       warn error.message
     rescue StandardError => error
       warn error.full_message
     ensure
-      source&.close unless source.equal?(client)
+      handshake_slots&.push(true)
+      @session_slots << true if session_slot
+      connection&.source&.close
       client&.close
-      target&.close
+      connection&.target&.close
     end
 
     private
 
-    def connect(route)
+    def connect(route, deadline:)
+      remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      raise Error, "Database handshake timed out" unless remaining.positive?
+
       Socket.tcp(
         route.target_address,
         route.port,
-        connect_timeout: CONNECT_TIMEOUT
+        connect_timeout: [CONNECT_TIMEOUT, remaining].min
       )
-    end
-
-    def proxy(client, target)
-      [[client, target], [target, client]].map do |source, destination|
-          Thread.new do
-            IO.copy_stream(source, destination)
-          rescue IOError, OpenSSL::SSL::SSLError, SystemCallError
-            nil
-          ensure
-            if destination.respond_to?(:close_write) && !destination.closed?
-              destination.close_write
-            end
-          end
-        end
-        .each(&:join)
     end
   end
 end

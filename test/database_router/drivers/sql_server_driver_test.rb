@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
 require "socket"
+
+require "minitest/autorun"
+
 require "local_development_gateway"
 
 class SqlServerDriverTest < Minitest::Test
@@ -42,6 +44,52 @@ class SqlServerDriverTest < Minitest::Test
 
     assert_equal %w[client-prelogin client-prelogin],
                  2.times.map { received.pop }
+  ensure
+    client&.close
+    gateway&.close
+    first_server&.close
+    second_server&.close
+    [first_thread, second_thread, router_thread].compact.each(&:join)
+  end
+
+  def test_falls_back_after_a_stalled_provisional_backend
+    first_server = TCPServer.new("127.0.0.1", 0)
+    second_server = TCPServer.new("127.0.0.1", 0)
+    routes = -> do
+      [
+        route("db.issue-a.wrap.localhost", first_server),
+        route("db.issue-b.wrap.localhost", second_server)
+      ]
+    end
+    driver = Driver.new
+    router = Router.new(routes: routes, drivers: [driver], servers: {})
+    client, gateway = Socket.pair(:UNIX, :STREAM, 0)
+    received = Queue.new
+    stalled_closed = Queue.new
+
+    first_thread = stalled_sql_server(first_server, stalled_closed)
+    second_thread =
+      fake_sql_server(
+        second_server,
+        "second-prelogin",
+        received,
+        selected: true
+      )
+    router_thread = Thread.new { router.route(gateway, driver) }
+
+    Router::Wire.stub(
+      :deadline,
+      -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) + 3 }
+    ) do
+      client.write(tds_message("client-prelogin"))
+      assert_equal "second-prelogin", read_tds_message(client)
+      hello = tls_client_hello("db.issue-b.wrap.localhost")
+      client.write(tds_message(hello))
+      assert_equal "selected-b", client.read
+    end
+
+    assert_equal true, stalled_closed.pop
+    assert_equal "client-prelogin", received.pop
     assert_equal "db.issue-b.wrap.localhost", received.pop
   ensure
     client&.close
@@ -49,6 +97,50 @@ class SqlServerDriverTest < Minitest::Test
     first_server&.close
     second_server&.close
     [first_thread, second_thread, router_thread].compact.each(&:join)
+  end
+
+  def test_does_not_attempt_another_backend_after_overall_deadline
+    first_server = TCPServer.new("127.0.0.1", 0)
+    second_server = TCPServer.new("127.0.0.1", 0)
+    routes = [
+      route("db.issue-a.wrap.localhost", first_server),
+      route("db.issue-b.wrap.localhost", second_server)
+    ]
+    client, gateway = Socket.pair(:UNIX, :STREAM, 0)
+    stalled_closed = Queue.new
+    first_thread = stalled_sql_server(first_server, stalled_closed)
+    connector =
+      lambda do |selected_route, deadline:|
+        Socket.tcp(selected_route.target_address, selected_route.port)
+      end
+    driver_thread = nil
+
+    Router::Wire.stub(
+      :deadline,
+      -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) + 0.2 }
+    ) do
+      driver_thread =
+        Thread.new do
+          Driver.new.connect(
+            gateway,
+            routes: -> { routes },
+            connector: connector
+          )
+        rescue LocalDevelopmentGateway::Error => error
+          error
+        end
+      client.write(tds_message("client-prelogin"))
+      assert_instance_of LocalDevelopmentGateway::Error, driver_thread.value
+    end
+
+    assert_nil IO.select([second_server], nil, nil, 0)
+    assert_equal true, stalled_closed.pop
+  ensure
+    client&.close
+    gateway&.close
+    first_server&.close
+    second_server&.close
+    [first_thread, driver_thread].compact.each(&:join)
   end
 
   private
@@ -60,6 +152,17 @@ class SqlServerDriverTest < Minitest::Test
       port: server.local_address.ip_port,
       target_address: "127.0.0.1"
     )
+  end
+
+  def stalled_sql_server(server, closed)
+    Thread.new do
+      connection = server.accept
+      read_tds_message(connection)
+      connection.read
+      closed << true
+    ensure
+      connection&.close
+    end
   end
 
   def fake_sql_server(server, prelogin_response, received, selected: false)

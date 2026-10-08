@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+
 require "local_development_gateway"
 
 class DockerRoutesTest < Minitest::Test
@@ -38,52 +39,67 @@ class DockerRoutesTest < Minitest::Test
     )
   end
 
-  def test_rejects_incomplete_routes
-    error =
-      assert_raises(LocalDevelopmentGateway::Error) do
-        docker_routes(
-          [container(nil, "db.issue-a.wrap.localhost", "1433", "172.20.0.2")]
-        ).call
-      end
-
-    assert_equal "Incomplete labelled database route", error.message
-  end
-
-  def test_rejects_unsupported_database_drivers
-    error =
-      assert_raises(LocalDevelopmentGateway::Error) do
-        docker_routes(
-          [
-            container(
-              "mysql",
-              "db.issue-a.wrap.localhost",
-              "3306",
-              "172.20.0.2"
-            )
-          ]
-        ).call
-      end
-
-    assert_equal "Unsupported database driver: mysql", error.message
-  end
-
-  def test_rejects_duplicate_driver_hostnames
+  def test_ignores_invalid_metadata_for_containers_outside_the_gateway_network
     containers = [
-      container(
-        "sql_server",
-        "db.issue-a.wrap.localhost",
-        "1433",
-        "172.20.0.2"
-      ),
-      container("sql_server", "db.issue-a.wrap.localhost", "1433", "172.20.0.3")
+      container("unsupported", "not a hostname", "invalid", nil),
+      container("postgresql", "db.pg.wrap.localhost", "5432", "172.20.0.3")
     ]
 
-    error =
-      assert_raises(LocalDevelopmentGateway::Error) do
-        docker_routes(containers).call
-      end
+    routes = docker_routes(containers).call
 
-    assert_equal "Duplicate labelled database hostname", error.message
+    assert_equal(
+      [["postgresql", "db.pg.wrap.localhost", 5432, "172.20.0.3"]],
+      routes.map { |route| route.to_h.values }
+    )
+  end
+
+  def test_quarantines_an_invalid_route_without_dropping_valid_routes
+    containers = [
+      container("postgresql", "invalid hostname", "5432", "172.20.0.4"),
+      container("sql_server", "db.sql.wrap.localhost", "1433", "172.20.0.2")
+    ]
+
+    routes = docker_routes(containers).call
+
+    assert_equal(
+      [["sql_server", "db.sql.wrap.localhost", 1433, "172.20.0.2"]],
+      routes.map { |route| route.to_h.values }
+    )
+  end
+
+  def test_quarantines_all_routes_for_duplicate_identity_only
+    containers = [
+      container(
+        "postgresql",
+        "db.duplicate.wrap.localhost",
+        "5432",
+        "172.20.0.2"
+      ),
+      container(
+        "postgresql",
+        "db.duplicate.wrap.localhost",
+        "5432",
+        "172.20.0.3"
+      ),
+      container("postgresql", "db.other.wrap.localhost", "5432", "172.20.0.4"),
+      container(
+        "sql_server",
+        "db.duplicate.wrap.localhost",
+        "1433",
+        "172.20.0.5"
+      )
+    ]
+
+    capture_io do
+      routes = docker_routes(containers).call
+      assert_equal(
+        [
+          ["postgresql", "db.other.wrap.localhost", 5432, "172.20.0.4"],
+          ["sql_server", "db.duplicate.wrap.localhost", 1433, "172.20.0.5"]
+        ],
+        routes.map { |route| route.to_h.values }
+      )
+    end
   end
 
   private
