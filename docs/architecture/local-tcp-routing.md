@@ -97,22 +97,36 @@ session to obtain SNI, and forwards the plaintext PostgreSQL stream on the
 private Docker network.
 
 Traefik remains responsible for HTTP. It cannot inspect TLS SNI wrapped inside
-TDS PRELOGIN or the TLS handshake that follows a PostgreSQL SSLRequest.
+TDS PRELOGIN. It **does** support PostgreSQL SSLRequest/STARTTLS and subsequent
+TLS-SNI routing, as documented in its
+[TCP TLS reference](https://doc.traefik.io/traefik/reference/routing-configuration/tcp/tls/).
 
-Encrypted connections are required so the requested hostname is present as
-TLS SNI. The router supports only the handshake framing required to select a
-backend; it is not a database protocol implementation.
+STARTTLS alone is therefore not a reason to implement PostgreSQL routing here.
+The gateway also owns PostgreSQL query cancellation: `psql` and JDBC can open
+a separate plaintext CancelRequest connection containing only a backend PID and
+secret, with no hostname. A stateless SNI router cannot select that backend.
+Keeping negotiation and cancellation-aware session forwarding together preserves
+the existing three-label consumer contract without per-route internal listeners,
+generated Traefik configuration, or another discovery/control plane.
+
+Normal database sessions require encrypted handshakes so the requested hostname
+is present as TLS SNI. PostgreSQL cancellation is a bounded control-message
+exception, not support for plaintext database sessions. The router parses
+PostgreSQL backend messages only until BackendKeyData, replaces that key, then
+forwards the remainder without interpreting query results.
 
 ## Code Organization
 
-`DatabaseRouter` owns listener concurrency, backend connection lifecycle, and
-bidirectional stream forwarding. `DockerApi` and `DockerRoutes` form the
-external Docker boundary and produce validated `Route` values. Behavior-bearing
-classes each have one file, and directories map to Ruby namespaces: database
-drivers live under `DatabaseRouter::Drivers`, while TDS framing and wrapped TLS
-parsing live under `DatabaseRouter::Tds`. Tiny immutable `Route` and TDS
-`Packet` records stay with the classes that own them rather than creating empty
-standalone subclasses.
+`DatabaseRouter` owns listener concurrency and backend connection lifecycle.
+`Wire` owns bounded handshake I/O and bidirectional forwarding, including
+shutdown that wakes both relay directions. `DockerApi` and `DockerRoutes` form
+the external Docker boundary and produce validated `Route` values.
+Behavior-bearing classes each have one file, and directories map to Ruby
+namespaces: drivers live under `DatabaseRouter::Drivers`, TDS framing and TLS
+parsing under `DatabaseRouter::Tds`, and PostgreSQL session-key forwarding and
+cancellation lookup under `DatabaseRouter::PostgreSql`. Tiny immutable `Route`,
+`Connection`, cancellation destination, and TDS `Packet` records stay with
+their owners.
 
 Source and test imports resolve from the gem's `lib` load path and start at
 `local_development_gateway`; domain files never traverse sibling paths with
@@ -148,10 +162,29 @@ instead of sharing a generic fixture layer.
 
 ## Lifecycle
 
-- The router reads current Docker metadata for every new connection; starting, restarting, or stopping a labelled container therefore requires no stored route state or cleanup.
-- Duplicate active hostname labels are rejected instead of selecting an arbitrary container.
+- Normal session selection reads current Docker metadata; starting, restarting,
+  or stopping a labelled container requires no stored route configuration or
+  consumer cleanup.
+- Containers outside `local-gateway` are excluded before label validation.
+  Invalid participating routes are warned about and quarantined individually.
+- Duplicate active driver/hostname identities reject every route for that
+  identity, not unrelated identities or database drivers.
 - A connection snapshot never changes backend after selection.
-- Gateway restart requires no route reconstruction because Docker metadata is the source of truth.
+- PostgreSQL rewrites BackendKeyData with a random, collision-checked virtual
+  identity whose PID is positive for older client compatibility. The active
+  mapping retains the exact backend address, port, and original cancellation key.
+- Cancellation uses that mapping without Docker discovery or hostname
+  negotiation. Unknown and closed-session identities fail closed, and malformed
+  cancellation lengths never fall through to normal backend forwarding.
+- Backend EOF, client disconnect, or relay failure removes the session mapping.
+  Gateway restart closes sessions and clears their cancellation identities;
+  normal route configuration is reconstructed from Docker metadata.
+- Handshakes and active sessions have separate bounded admission pools.
+  Cancellation and closed health probes do not consume an active-session slot,
+  so cancellation remains available when the normal session limit is reached.
+- SQL Server provisional attempts have a bounded sub-deadline within the shared
+  handshake deadline. Connection establishment uses only the remaining budget;
+  stalled provisional sockets are closed before a healthy alternative is tried.
 
 ## Compatibility
 
@@ -166,6 +199,8 @@ instead of sharing a generic fixture layer.
   response before SNI identifies the final backend.
 - PostgreSQL backends must accept a plaintext connection from the private
   `local-gateway` Docker network.
+- PostgreSQL cancellation PIDs reported by client APIs are virtual. Use
+  `SELECT pg_backend_pid()` when inspecting the physical backend in server views.
 - Existing browser routes through Traefik on `127.0.0.1:80` remain unchanged.
 - Multiple active worktrees can use each database driver's standard port
   simultaneously.
@@ -196,8 +231,9 @@ instead of sharing a generic fixture layer.
 - Publishing development routes outside the machine.
 - Replacing existing HTTP routing.
 - Building a generic service mesh or full database proxy.
-- Supporting plaintext clients, PostgreSQL direct TLS negotiation, or database
-  protocols without an implemented driver.
+- Supporting plaintext database sessions, PostgreSQL direct TLS negotiation, or
+  database protocols without an implemented driver. Plaintext PostgreSQL
+  cancellation control packets are supported.
 
 ## Verification Evidence
 
@@ -214,3 +250,15 @@ PR #22 demonstrated:
    equivalent validation.
 5. Existing HTTP routes remained unchanged and every published listener was
    loopback-only.
+
+Issue #24's corrective release additionally demonstrated:
+
+1. PostgreSQL 14.4 `psql` cancellation stopped A's query while B stayed active.
+2. DBeaver's Java runtime with PostgreSQL JDBC 42.7.13 and 42.2.27 returned
+   SQLSTATE `57014` for A while B completed its query normally.
+3. Two SQL Server 2022 backends remained reachable with encrypted `sqlcmd`
+   connections despite a first labelled backend that accepted TCP but never
+   answered PRELOGIN.
+4. Focused regressions cover invalid-route isolation, cancellation identity
+   collisions after PID normalization, variable backend keys, session cleanup,
+   malformed cancellation packets, and cancellation at full session capacity.
