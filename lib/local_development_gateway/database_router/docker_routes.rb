@@ -18,18 +18,35 @@ module LocalDevelopmentGateway
       routes =
         @client
           .get("/containers/json")
-          .filter_map { |container| route(container) }
-      identities = routes.map { |route| [route.driver, route.hostname] }
-      unless identities.uniq.length == identities.length
-        raise Error, "Duplicate labelled database hostname"
+          .filter_map do |container|
+            begin
+              route(container)
+            rescue Error => error
+              warn error.message
+              nil
+            end
+          end
+      identities = routes.group_by { |route| [route.driver, route.hostname] }
+      identities.each do |identity, matches|
+        next if matches.length == 1
+
+        warn "Duplicate labelled database hostname: #{identity.join(" ")}"
       end
 
-      routes.sort_by { |route| [route.driver, route.hostname] }
+      routes
+        .reject do |route|
+          identities.fetch([route.driver, route.hostname]).length > 1
+        end
+        .sort_by { |route| [route.driver, route.hostname] }
     end
 
     private
 
     def route(container)
+      target_address =
+        container.dig("NetworkSettings", "Networks", NETWORK_NAME, "IPAddress")
+      return if target_address.nil? || target_address.empty?
+
       labels = container.fetch("Labels")
       driver = labels[DRIVER_LABEL]
       hostname = labels[HOSTNAME_LABEL]
@@ -52,16 +69,14 @@ module LocalDevelopmentGateway
         raise Error, "Invalid labelled database port: #{port}"
       end
 
-      target_address =
-        container.dig("NetworkSettings", "Networks", NETWORK_NAME, "IPAddress")
-      return if target_address.nil? || target_address.empty?
-
       DatabaseRouter::Route.new(
         driver: driver,
         hostname: hostname,
         port: port,
         target_address: target_address
       )
+    rescue KeyError
+      raise Error, "Incomplete labelled database route"
     rescue ArgumentError, TypeError
       raise Error, "Invalid labelled database port: #{port}"
     end

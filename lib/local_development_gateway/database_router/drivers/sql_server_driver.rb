@@ -6,6 +6,8 @@ require "local_development_gateway/database_router/tds/tls_client_hello"
 module LocalDevelopmentGateway
   module DatabaseRouter::Drivers
     class SqlServerDriver
+      NEGOTIATION_ATTEMPT_TIMEOUT = 1
+
       NAME = "sql_server"
       LISTEN_PORT = 1433
 
@@ -17,9 +19,10 @@ module LocalDevelopmentGateway
         LISTEN_PORT
       end
 
-      def connect(client, routes, connector:)
+      def connect(client, routes:, connector:)
         deadline = DatabaseRouter::Wire.deadline
         prelogin = DatabaseRouter::Tds::Message.read(client, deadline: deadline)
+        routes = routes.call
         if routes.empty?
           raise Error, "No labelled sql_server routes are available"
         end
@@ -33,7 +36,7 @@ module LocalDevelopmentGateway
 
         if selected != provisional
           target.close
-          target = connector.call(selected)
+          target = connector.call(selected, deadline: deadline)
           DatabaseRouter::Tds::Message.write(target, prelogin)
           DatabaseRouter::Tds::Message.read(target, deadline: deadline)
         end
@@ -41,22 +44,41 @@ module LocalDevelopmentGateway
         messages.each do |message|
           DatabaseRouter::Tds::Message.write(target, message)
         end
-        [client, target]
+        DatabaseRouter::Connection.new(
+          source: client,
+          target: target,
+          route: selected
+        )
       rescue StandardError
         target&.close
         raise
+      end
+
+      def forward(connection)
+        DatabaseRouter::Wire.proxy(connection.source, connection.target)
       end
 
       private
 
       def negotiate(routes, prelogin, connector, deadline)
         routes.each do |route|
-          target = connector.call(route)
+          remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          break unless remaining.positive?
+
+          attempt_deadline = [
+            deadline,
+            Process.clock_gettime(Process::CLOCK_MONOTONIC) +
+              NEGOTIATION_ATTEMPT_TIMEOUT
+          ].min
+          target = connector.call(route, deadline: attempt_deadline)
           DatabaseRouter::Tds::Message.write(target, prelogin)
           return [
             route,
             target,
-            DatabaseRouter::Tds::Message.read(target, deadline: deadline)
+            DatabaseRouter::Tds::Message.read(
+              target,
+              deadline: attempt_deadline
+            )
           ]
         rescue Error, EOFError, IOError, SystemCallError
           target&.close

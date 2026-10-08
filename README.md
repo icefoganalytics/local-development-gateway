@@ -143,18 +143,27 @@ connects to `db.issue-567.wrap.localhost` on the driver's standard port:
 Use the database container's actual internal port in
 `local-gateway.tcp.port`; it does not need to match the host listener.
 
+Remove the database's host `ports` publication when using the gateway; the shared
+router owns `127.0.0.1:1433` and `127.0.0.1:5432`. Keep the `default` network so
+application and test containers still connect directly to `db` on its internal
+port, without TLS or a host-published port. A project not using the gateway must
+select its own explicit port-publishing fallback.
+
 All `.localhost` names resolve to loopback. The gateway publishes loopback-only
 listeners, discovers labelled containers through Docker, and uses the database
 protocol's encrypted handshake to select the hostname-labelled container.
 Container replacements and stopped routes require no consumer lifecycle code
 or cleanup.
 
-SQL Server encryption remains end to end through the router. The PostgreSQL
-driver terminates client TLS at the gateway and forwards the resulting
-PostgreSQL stream over the private Docker network because PostgreSQL sends its
-TLS hostname only after the gateway accepts its SSL request. See
+SQL Server encryption remains end to end through the router. PostgreSQL TLS
+terminates at the gateway; the backend stream is plaintext on the private Docker
+network. New PostgreSQL sessions require TLS and SNI, but query cancellation
+does not: the gateway substitutes a session-specific cancellation identity and
+routes ordinary `psql` and JDBC cancellation packets to that session's backend.
+Closed sessions lose their cancellation mapping. See
 [`docs/architecture/local-tcp-routing.md`](docs/architecture/local-tcp-routing.md)
-for the complete contract and security boundary.
+for the complete contract and security boundary, including the reason for
+retaining cancellation-aware PostgreSQL routing despite Traefik's STARTTLS support.
 
 ## Development checks
 
@@ -169,6 +178,7 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   lib/local_development_gateway/database_router.rb \
   lib/local_development_gateway/database_router/*.rb \
   lib/local_development_gateway/database_router/drivers/*.rb \
+  lib/local_development_gateway/database_router/postgre_sql/*.rb \
   lib/local_development_gateway/database_router/tds/*.rb \
   lib/local_development_gateway/version.rb \
   bin/dev \
@@ -176,6 +186,7 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   test/*.rb \
   test/database_router/*.rb \
   test/database_router/drivers/*.rb \
+  test/database_router/postgre_sql/*.rb \
   test/database_router/tds/*.rb
 rake test
 ```
@@ -251,3 +262,16 @@ It mounts the Docker socket so it can discover labelled containers. A read-only 
 | Generated hostname returns `404` | Confirm the web container has the route labels and is attached to `local-gateway`. |
 | A project uses normal ports unexpectedly | Confirm the gateway container is running and has `local-gateway=true`. |
 | Authentication rejects the callback | Confirm the generated hostname matches the allowed wildcard callback pattern. |
+
+## Release 0.2.1
+
+- PostgreSQL query cancellation works across concurrent worktrees, including
+  plaintext cancellation from `psql` and JDBC and encrypted cancellation.
+  Session-specific identities prevent backend key collisions and expire when
+  their session closes.
+- Invalid database labels and duplicate hostname identities reject only the
+  affected routes, leaving unrelated worktrees and database drivers available.
+- SQL Server negotiation can fall back from a stalled backend within the
+  shared handshake deadline.
+- PostgreSQL STARTTLS support in Traefik is documented accurately. The gateway
+  retains cancellation-aware session routing without changing consumer labels.
