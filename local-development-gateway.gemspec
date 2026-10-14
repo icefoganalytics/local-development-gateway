@@ -20,6 +20,7 @@ Gem::Specification.new do |spec|
     Dir[
       "README.md",
       "docker-compose.yml",
+      "docs/architecture/local-tcp-routing.md",
       "config/traefik.yml",
       "bin/local-development-gateway",
       "lib/**/*.rb"
