@@ -25,24 +25,35 @@ Each must connect from DBeaver to that worktree's labelled database container.
 
 ## Consumer Contract
 
-A participating project declares the service in Compose using the existing `local-gateway` network and these gateway-owned labels:
+A participating project keeps its databases on its private `default` network
+and adds the existing `local-gateway` network plus three gateway-owned labels:
+driver, desktop hostname, and internal port. The copyable SQL Server and
+PostgreSQL base/overlay examples live in the README's
+[canonical Compose pattern](../../README.md#canonical-development-and-test-compose-pattern).
 
-```yaml
-services:
-  db:
-    networks:
-      - default
-      - local-gateway
-    labels:
-      - "local-gateway.tcp.driver=sql_server"
-      - "local-gateway.tcp.hostname=db.${GATEWAY_HOSTNAME}"
-      - "local-gateway.tcp.port=1433"
+| Connection path | Destination selection |
+| --- | --- |
+| API, background job, test | `${COMPOSE_PROJECT_NAME}-<database-service>` on private Docker DNS, using the driver's existing host setting and internal port |
+| Desktop database client | Encrypted `db.<worktree>.<project>.localhost` endpoint; driver/hostname labels select the backend |
+| Database-local console, backup, clone | Explicitly selected container, then `localhost`; not gateway routing |
 
-networks:
-  local-gateway:
-    external: true
-    name: local-gateway
-```
+Each concurrent checkout has a distinct Compose project name. Each database
+advertises its qualified alias only on that project's `default` network.
+Use mapping-form database networks in the base and gateway overlay so Compose
+preserves `default.aliases`. Configure all application/job/test contexts with
+their appropriate aliases, existing credentials, and intended database names;
+test contexts still select their own test database.
+
+Gateway-mode development and test stacks publish no database host ports.
+Container consumers work with the base alone. Desktop access without the
+gateway is an explicit project-local port-publishing overlay, not an inherited
+base default and not a parallel-stack guarantee. The README covers migration
+of inherited port publications, fallback selection, and adoption checks.
+
+Internal database hostnames and desktop `.localhost` hostnames are separate
+contracts. Internal connections need neither a published host port nor the
+gateway's encrypted-handshake protocol. Database cloning does not depend on
+the internal hostname correction.
 
 Requirements:
 
@@ -58,6 +69,51 @@ Requirements:
 - No administrator or root installation.
 - No host `/etc/hosts`, DNS, resolver, systemd, or Windows-service changes.
 - The same gateway Compose stack must run through Docker on Linux and Windows.
+
+## Internal Database Isolation Decision
+
+**Decision:** retain the current shared ingress topology and standardize
+checkout-qualified private aliases. This resolves
+[#23](https://github.com/icefoganalytics/local-development-gateway/issues/23)'s
+parallel-stack contract and
+[#26](https://github.com/icefoganalytics/local-development-gateway/issues/26)'s
+internal database selection contract without new runtime machinery or public
+Ruby lifecycle changes.
+
+Bare `db` is not safe for an API attached to both its private bridge and
+`local-gateway`: other attached databases advertise the same Compose service
+alias on shared ingress. Docker DNS/network ordering, container IDs, separate
+volumes, and gateway TLS/SNI cannot disambiguate an ordinary internal connection.
+The qualified alias identifies only its own private endpoint. If that endpoint
+is absent, its consumers must fail rather than connect to another checkout.
+Do not advertise the qualified alias on shared ingress.
+
+An HTTP/database ingress split is a possible future centralization, not a
+transparent gem-only patch:
+
+- HTTP services/APIs: private checkout network plus existing HTTP ingress.
+- Databases: private checkout network plus a distinct gateway-owned database
+  ingress network. APIs/jobs/tests must not join database ingress.
+- Traefik: HTTP ingress only. Database router: database ingress only.
+- Route discovery must read backend addresses on database ingress instead of
+  `DockerRoutes::NETWORK_NAME`'s current `local-gateway`.
+- Gateway readiness/discovery must check the appropriate networks and services.
+  Unused-gateway shutdown must retain running consumers on either ingress,
+  including database-only stacks, without counting exited containers.
+- Consumer network membership, installed gem versions, and already-running
+  shared gateways require coordinated migration. Old consumers still
+  advertising database aliases on HTTP ingress remain ambiguous after a
+  gateway-only update.
+
+That alternative requires packaged install/readiness, database-only lifecycle,
+multi-project startup/stop/replacement, SQL Server routing, PostgreSQL routing
+and cancellation, mixed-version migration, and unchanged HTTP-routing evidence
+before adoption. No structural split is implemented in this release; downstream
+qualified-alias mitigations must remain until a verified replacement is adopted.
+
+These development networks are not hostile-container security boundaries.
+Private qualified aliases prevent accidental selection, not deliberate
+connections by another attached container.
 
 ## Gateway Responsibilities
 
@@ -225,7 +281,9 @@ instead of sharing a generic fixture layer.
 
 ## Non-Goals
 
-- Changing consumer application code or development wrappers.
+- Changing consumer application code, adding new development wrapper runtimes,
+  or automatically mutating consumer networks. Existing Compose connection
+  settings and file selection must adopt the documented contract.
 - Requiring consumers to run DNS, a proxy, or host installation.
 - Assigning a different database port to each worktree.
 - Publishing development routes outside the machine.
@@ -262,3 +320,37 @@ Issue #24's corrective release additionally demonstrated:
 4. Focused regressions cover invalid-route isolation, cancellation identity
    collisions after PID normalization, variable backend keys, session cleanup,
    malformed cancellation packets, and cancellation at full session capacity.
+
+Issues #23 and #26's documentation release demonstrated on Linux with Docker
+Compose 5.6.0:
+
+1. Two isolated Compose projects, each with SQL Server 2022 `db` and PostgreSQL
+   17 `db_trav_com`, started concurrently without database host publications.
+   The repository's `bin/dev` Compose passthrough selected the temporary
+   consumer fixtures; the existing shared gateway was reused.
+2. Real SQL/PG client containers representing API, job, and test contexts joined
+   both private and shared networks. `getent hosts` selected only their private
+   qualified aliases. Read-only SQL Server `@@SERVERNAME` / `DB_NAME()` and
+   PostgreSQL `cluster_name` / `current_database()` / `inet_server_addr()`
+   identified their own servers. Test contexts selected `qa_test`; explicit
+   database-container `localhost` queries matched the consumer identities.
+3. Stopping A's two databases made every A context fail while B remained
+   usable. `getent hosts` returned exit 1; SQL Server reported login timeout,
+   TCP Provider `0x2AFA`, and server-not-found/not-accessible; PostgreSQL reported
+   `could not translate host name ... to address: Try again`. These are observed
+   platform errors, not required portable error codes.
+4. Both projects were recreated using base-only Compose. All consumer identity
+   checks passed with private-only attachments. Recreating with the gateway
+   overlay restored shared attachments and preserved private aliases and test
+   database selection.
+5. Desktop-equivalent host-network clients selected both labelled worktrees:
+   `sqlcmd` 18.6 with `-Nm -C` (mandatory encryption, trusted development
+   certificate), and PostgreSQL 17 `psql` with `sslmode=require`, SNI, hostname,
+   and explicit loopback `hostaddr`. SQL Server strict/direct TLS is outside the
+   supported TDS PRELOGIN contract.
+6. Docker inspection confirmed the shared gateway publishes only
+   `127.0.0.1:80`, `127.0.0.1:1433`, and `127.0.0.1:5432`.
+
+This validates real database client contexts, not an automatic downstream
+application migration. Consumers still need to adopt the README checklist.
+Windows Docker Desktop validation remains outstanding.

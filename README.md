@@ -112,19 +112,102 @@ The gateway includes protocol drivers for encrypted SQL Server and PostgreSQL
 connections. No host agent, DNS server, administrator privileges, or
 `/etc/hosts` changes are required.
 
-A participating project only joins its existing database service to
-`local-gateway` and adds three labels:
+### Three connection paths
+
+| Caller | Database hostname | Routing |
+| --- | --- | --- |
+| Application/API, background job, test container | `${COMPOSE_PROJECT_NAME}-<database-service>` | Qualified alias on that checkout's private `default` network; internal database port |
+| Desktop client, such as DBeaver | `db.<worktree>.<project>.localhost` | Encrypted, hostname-labelled gateway endpoint on loopback |
+| Database-local console, backup, clone command | `localhost` | Explicitly select the intended database container first |
+
+Do not use bare `db` or `db_trav_com` for application connections in the current
+gateway topology. An API attached to both `default` and `local-gateway` can see
+other projects' database service aliases on the shared network. Docker DNS or
+network ordering cannot reliably choose its own database. Separate database
+volumes do not prevent connecting to the wrong server.
+
+The qualified alias belongs **only on the private `default` network**. Compose
+project names must be distinct for concurrent checkouts. `.localhost` desktop
+names resolve to loopback, not to an internal database container; they are not
+substitutes for private aliases. Database cloning is independent of this
+hostname correction: it selects source/destination containers explicitly and
+connects locally.
+
+### Canonical development and test Compose pattern
+
+Merge these entries into the project's existing development base and gateway
+overlay. Keep its database images, credentials, volumes, and application
+commands. The base must not publish database host ports. Use the driver's
+existing configuration keys: `AZURE_SQL_HOST` is a SQL Server application
+example; `PGHOST` is the PostgreSQL/libpq equivalent. An application with a
+different PostgreSQL configuration key must set that key instead.
+
+For example, a wrapper-derived `COMPOSE_PROJECT_NAME=issue-123-example` gives
+private hosts `issue-123-example-db` and `issue-123-example-db_trav_com`.
+`GATEWAY_HOSTNAME=issue-123.example.localhost` separately identifies desktop
+routes. This requires no new Ruby API, generic database environment variable,
+or consumer runtime.
 
 ```yaml
+# docker-compose.development.yml: also safe without the gateway overlay.
 services:
+  api:
+    environment:
+      AZURE_SQL_HOST: "${COMPOSE_PROJECT_NAME}-db"
+      PGHOST: "${COMPOSE_PROJECT_NAME}-db_trav_com"
+  jobs:
+    environment:
+      AZURE_SQL_HOST: "${COMPOSE_PROJECT_NAME}-db"
+      PGHOST: "${COMPOSE_PROJECT_NAME}-db_trav_com"
+  test_api:
+    environment:
+      AZURE_SQL_HOST: "${COMPOSE_PROJECT_NAME}-db"
+      PGHOST: "${COMPOSE_PROJECT_NAME}-db_trav_com"
   db:
+    networks:
+      default:
+        aliases:
+          - "${COMPOSE_PROJECT_NAME}-db"
+  db_trav_com:
+    networks:
+      default:
+        aliases:
+          - "${COMPOSE_PROJECT_NAME}-db_trav_com"
+```
+
+The example's driver assignments are illustrative. In
+[Travel Authorization's overlay](https://github.com/icefoganalytics/travel-authorization/blob/main/docker-compose.development.gateway.yml),
+`db` is PostgreSQL and `db_trav_com` is SQL Server: its PostgreSQL host setting
+must use `${COMPOSE_PROJECT_NAME}-db`, and its SQL Server host setting must use
+`${COMPOSE_PROJECT_NAME}-db_trav_com`, with labels/ports matching those drivers.
+Apply the rule separately to **every** database service, even when two services
+use the same driver. Preserve each context's existing credentials, internal
+port, and database name; tests must still select the test database rather than
+development data.
+
+```yaml
+# docker-compose.development.gateway.yml
+services:
+  api:
     networks:
       - default
       - local-gateway
+  db:
+    networks:
+      default: {}
+      local-gateway: {}
     labels:
       - "local-gateway.tcp.driver=sql_server"
-      - "local-gateway.tcp.hostname=db.${GATEWAY_HOSTNAME:-wrap.localhost}"
+      - "local-gateway.tcp.hostname=db.${GATEWAY_HOSTNAME}"
       - "local-gateway.tcp.port=1433"
+  db_trav_com:
+    networks:
+      default: {}
+      local-gateway: {}
+    labels:
+      - "local-gateway.tcp.driver=postgresql"
+      - "local-gateway.tcp.hostname=db.${GATEWAY_HOSTNAME}"
+      - "local-gateway.tcp.port=5432"
 
 networks:
   local-gateway:
@@ -132,22 +215,64 @@ networks:
     name: local-gateway
 ```
 
-For a worktree whose `GATEWAY_HOSTNAME` is `issue-567.wrap.localhost`, DBeaver
-connects to `db.issue-567.wrap.localhost` on the driver's standard port:
+Use **mapping-form** database networks in both files. Compose merges
+`default: {}` with the base's `default.aliases`; replacing that mapping with a
+network list can lose the private alias. Do not add qualified aliases to
+`local-gateway`. Jobs/tests need only `default` unless they themselves expose a
+routed service; qualified database names remain safe if an existing overlay
+also attaches them to the shared network.
+
+The shared router owns `127.0.0.1:1433` and `127.0.0.1:5432`. No participating
+database publishes either port, so multiple development/test stacks can start
+concurrently. Internal connections use each server's internal port and existing
+encryption policy; they do not pass through the router or require a published
+port.
+
+### Explicit non-gateway fallback
+
+Container-only development/tests work with the base alone. If desktop access
+without the gateway is required, select a separate, project-local publishing
+overlay **instead of** the gateway overlay:
+
+```yaml
+# docker-compose.development.ports.yml: opt-in, non-gateway mode only.
+services:
+  db:
+    ports:
+      - "127.0.0.1:1433:1433"
+  db_trav_com:
+    ports:
+      - "127.0.0.1:5432:5432"
+```
+
+These fallback ports must be free; this mode does not promise parallel desktop
+access. Do not combine it with the gateway or leave these publications in the
+base/test files. When migrating a project that retains base publications, its
+gateway overlay must explicitly clear each database's ports with
+`ports: !reset []` (Docker Compose 2.24.4 or newer); simply omitting `ports` or
+setting `ports: []` does not remove inherited publications. Prefer the
+port-free base plus explicit fallback above.
+
+Use the project's documented development wrapper to select Compose modes and
+start/test/stop services. Inspect its rendered `config`: gateway mode must have
+no database host publications and must retain the private aliases. A base-only
+test wrapper must use the same qualified hosts.
+
+### Desktop database clients
+
+For `GATEWAY_HOSTNAME=issue-123.example.localhost`, connect to
+`db.issue-123.example.localhost` on the driver's standard port:
 
 | Driver label | Host port | Client requirement |
 | --- | ---: | --- |
 | `sql_server` | `1433` | Encryption enabled and **Trust server certificate** selected |
-| `postgresql` | `5432` | SSL mode `require` |
+| `postgresql` | `5432` | SSL mode `require`, SNI enabled, development certificate accepted |
 
 Use the database container's actual internal port in
-`local-gateway.tcp.port`; it does not need to match the host listener.
-
-Remove the database's host `ports` publication when using the gateway; the shared
-router owns `127.0.0.1:1433` and `127.0.0.1:5432`. Keep the `default` network so
-application and test containers still connect directly to `db` on its internal
-port, without TLS or a host-published port. A project not using the gateway must
-select its own explicit port-publishing fallback.
+`local-gateway.tcp.port`; it need not match the host listener. Different drivers
+can share a hostname because their listeners differ. Two databases using the
+same driver need distinct labels, for example `db.${GATEWAY_HOSTNAME}` and
+`db_trav_com.${GATEWAY_HOSTNAME}`.
 
 All `.localhost` names resolve to loopback. The gateway publishes loopback-only
 listeners, discovers labelled containers through Docker, and uses the database
@@ -164,6 +289,29 @@ Closed sessions lose their cancellation mapping. See
 [`docs/architecture/local-tcp-routing.md`](docs/architecture/local-tcp-routing.md)
 for the complete contract and security boundary, including the reason for
 retaining cancellation-aware PostgreSQL routing despite Traefik's STARTTLS support.
+
+### Downstream adoption checklist
+
+1. Give each concurrent checkout a distinct Compose project name and desktop
+   route hostname. Qualify every API/job/test database host with
+   `${COMPOSE_PROJECT_NAME}-<database-service>` using its existing driver setting.
+2. Advertise each qualified alias only on its private `default` network;
+   preserve it through mapping-form network merges in base-only and gateway modes.
+3. Remove fixed database publications from development/test stacks; retain
+   desktop fallback publications only in an explicitly selected non-gateway file.
+4. Recreate database and consumer services so changed aliases and environment
+   settings take effect. Inspect both rendered Compose configurations.
+5. Query real, read-only server/database identity from API, job, and test
+   contexts and compare it with the explicitly selected local database
+   container. Stop that checkout's database while another is available: its
+   consumers must fail, not select the other checkout. Record the actual DNS or
+   connection error; there is no universal platform error code.
+6. Verify both encrypted desktop routes, and restore normal gateway attachments
+   after test wrappers recreate services using base-only Compose.
+
+Shared development networks are not a hostile-container security boundary.
+Qualified private aliases prevent accidental cross-stack selection; they do not
+prevent an attached, malicious container from connecting to another database.
 
 ## Development checks
 
@@ -206,8 +354,8 @@ The gateway owns the single browser port on `127.0.0.1:80`. Participating projec
 
 The gateway:
 
-- listens only on `127.0.0.1:80`;
-- creates the external Docker network `local-gateway`;
+- listens only on `127.0.0.1:80`, `127.0.0.1:1433`, and `127.0.0.1:5432`;
+- creates the external Docker network `local-gateway` for HTTP and labelled database ingress;
 - discovers only services explicitly labelled for routing;
 - has the Docker label `local-gateway=true` so a project can detect it.
 
@@ -236,6 +384,14 @@ Use a project- and service-prefixed router/service identifier. Never derive a de
 
 Without the gateway, a participating project may use its own loopback port-publishing fallback. That fallback is project-specific and is not part of the shared gateway contract.
 
+Application/job/test database connections follow the
+[private-alias contract](#three-connection-paths), not desktop gateway hostnames
+or bare database service names. Database services retain their private network
+and add gateway labels without publishing host ports. The
+[architecture decision](docs/architecture/local-tcp-routing.md#internal-database-isolation-decision)
+explains why a future HTTP/database ingress split requires coordinated consumer
+migration rather than a transparent gem update.
+
 ## Authentication callbacks
 
 A wildcard hostname lets an identity provider allow one local callback pattern instead of every generated port. For Traditional Knowledge, configure:
@@ -262,6 +418,19 @@ It mounts the Docker socket so it can discover labelled containers. A read-only 
 | Generated hostname returns `404` | Confirm the web container has the route labels and is attached to `local-gateway`. |
 | A project uses normal ports unexpectedly | Confirm the gateway container is running and has `local-gateway=true`. |
 | Authentication rejects the callback | Confirm the generated hostname matches the allowed wildcard callback pattern. |
+
+## Release 0.2.2
+
+- Canonical SQL Server/PostgreSQL Compose integration supports concurrent
+  development/test stacks without per-stack database host publications.
+- Application, job, and test connections use checkout-qualified private aliases
+  instead of ambiguous shared-network service names. Base-only mode, explicit
+  non-gateway fallback, multiple databases, and adoption checks are documented.
+- The packaged architecture reference records the current private-alias
+  decision, real-container Linux validation, and coordinated migration required
+  for a future HTTP/database ingress split.
+- Gateway routing and the public Ruby API are unchanged. Consumers must adopt
+  the Compose contract; upgrading the gem does not rewrite their configuration.
 
 ## Release 0.2.1
 
