@@ -434,6 +434,11 @@ It mounts the Docker socket so it can discover labelled containers. A read-only 
 | A project uses normal ports unexpectedly | Confirm the gateway container is running and has `local-gateway=true`. |
 | Authentication rejects the callback | Confirm the generated hostname matches the allowed wildcard callback pattern. |
 
+## Release 0.2.3
+
+- Status and healthy CLI reuse distinguish the installed gem version from each active shared service, reporting mismatches and unknown legacy provenance without restarting services.
+- Scoped router update instructions explain shared database session interruption and keep restart timing under caller control. Health readiness and Ruby lifecycle return values remain unchanged.
+
 ## Release 0.2.2
 
 - Canonical SQL Server/PostgreSQL Compose integration supports concurrent
