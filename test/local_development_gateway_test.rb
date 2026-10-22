@@ -5,6 +5,7 @@ require "open3"
 require "rbconfig"
 require "rubygems/package"
 require "tmpdir"
+require "stringio"
 require "local_development_gateway"
 
 class LocalDevelopmentGatewayTest < Minitest::Test
@@ -20,7 +21,9 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       attached: "gateway-id\tlocal-gateway\tgateway\ttrue\nrouter-id\tlocal-gateway\tdatabase-router\ttrue\n",
       all_attached: attached,
       compose_error: nil,
-      startup_error: nil
+      startup_error: nil,
+      gateway_version: LocalDevelopmentGateway::VERSION,
+      router_version: LocalDevelopmentGateway::VERSION
     )
       @network_labels = network_labels
       @gateway_ids = gateway_ids
@@ -31,10 +34,12 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       @all_attached = all_attached
       @compose_error = compose_error
       @startup_error = startup_error
+      @gateway_version = gateway_version
+      @router_version = router_version
       @calls = []
     end
 
-    def call(*args, capture: true)
+    def call(*args, capture: true, env: {})
       @calls << { args: args, capture: capture }
       case args.first
       when "network"
@@ -59,7 +64,29 @@ class LocalDevelopmentGatewayTest < Minitest::Test
           @gateway_ids
         end
       when "inspect"
-        @health
+        return @health if args.include?("--format")
+
+        [
+          {
+            "Config" => {
+              "Labels" => {
+                "local-gateway.version" => @gateway_version
+              }
+            },
+            "Mounts" => [
+              {
+                "Destination" => "/app/lib",
+                "Source" => "/gems/local-development-gateway-0.2.0/lib"
+              }
+            ]
+          }
+        ].to_json
+      when "exec"
+        unless @router_version
+          raise LocalDevelopmentGateway::DockerError.new(args, "missing record")
+        end
+
+        @router_version
       when "compose"
         raise @compose_error if @compose_error && args.include?("down")
         if @startup_error && args.include?("up")
@@ -72,7 +99,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
           @router_ids = "router-id\n"
           @obsolete_ids = ""
         end
-        ""
+        String.new
       end
     end
   end
@@ -302,6 +329,67 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     end
 
     refute observed_ensure_running
+  end
+
+  def test_status_distinguishes_an_older_active_router_from_the_installed_gem
+    runner = FakeRunner.new(router_version: "0.2.0")
+
+    status = client(runner).status
+
+    assert_includes status,
+                    "Installed gateway version: #{LocalDevelopmentGateway::VERSION}"
+    assert_includes status,
+                    "database-router (router-id): active=0.2.0; mismatch"
+    assert_includes status, "provenance=process-start record"
+  end
+
+  def test_status_reports_current_services
+    status = client(FakeRunner.new).status
+
+    assert_includes status,
+                    "gateway (gateway-id): active=#{LocalDevelopmentGateway::VERSION}; current"
+    assert_includes status,
+                    "database-router (router-id): active=#{LocalDevelopmentGateway::VERSION}; current"
+  end
+
+  def test_legacy_router_provenance_is_unknown_despite_versioned_mount_and_label
+    runner = FakeRunner.new(router_version: nil)
+
+    status = client(runner).status
+
+    assert_includes status,
+                    "database-router (router-id): active=unknown; unknown"
+    assert_includes status,
+                    "mounted assets=/gems/local-development-gateway-0.2.0/lib"
+    refute_includes status, "active=0.2.0"
+  end
+
+  def test_status_reports_an_unlabelled_gateway_as_unknown
+    status = client(FakeRunner.new(gateway_version: nil)).status
+
+    assert_includes status, "gateway (gateway-id): active=unknown; unknown"
+  end
+
+  def test_status_does_not_describe_a_missing_router_as_current
+    status = client(FakeRunner.new(router_ids: "")).status
+
+    assert_includes status, "database-router: not running; active=unknown"
+  end
+
+  def test_cli_exposes_older_router_on_healthy_reuse_without_restarting_it
+    runner = FakeRunner.new(router_version: "0.2.0")
+    output = StringIO.new
+
+    result =
+      LocalDevelopmentGateway::CLI.run(
+        ["up"],
+        client: client(runner),
+        output: output
+      )
+
+    assert_equal 0, result
+    assert_includes output.string, "active=0.2.0; mismatch"
+    refute runner.calls.any? { |call| call[:args].include?("up") }
   end
 
   private

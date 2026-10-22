@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "open3"
+require "json"
 require "local_development_gateway/version"
 
 module LocalDevelopmentGateway
@@ -29,16 +30,16 @@ module LocalDevelopmentGateway
   end
 
   class Docker
-    def call(*args, capture: true)
+    def call(*args, capture: true, env: {})
       command = ["docker", *args]
       if capture
-        stdout, stderr, status = Open3.capture3(*command)
+        stdout, stderr, status = Open3.capture3(env, *command)
         unless status.success?
           raise DockerError.new(command, stderr.empty? ? stdout : stderr)
         end
 
         stdout
-      elsif system(*command)
+      elsif system(env, *command)
         true
       else
         raise DockerError.new(command, "")
@@ -85,7 +86,17 @@ module LocalDevelopmentGateway
     end
 
     def status
-      compose("ps", "--all")
+      output = compose("ps", "--all")
+      output << "\nInstalled gateway version: #{VERSION}\n"
+      SERVICE_NAMES.each do |service|
+        ids = gateway_container_ids(service: service, status: "running")
+        if ids.empty?
+          output << "#{service}: not running; active=unknown\n"
+        else
+          ids.each { |id| output << service_version_status(service, id) }
+        end
+      end
+      output
     end
 
     def logs(*args, follow: false)
@@ -122,11 +133,55 @@ module LocalDevelopmentGateway
         "--file",
         COMPOSE_FILE,
         *args,
-        capture: capture
+        capture: capture,
+        env: {
+          "LOCAL_DEVELOPMENT_GATEWAY_VERSION" => VERSION
+        }
       )
     end
 
     private
+
+    def service_version_status(service, id)
+      container = JSON.parse(@runner.call("inspect", id)).fetch(0)
+      if service == "database-router"
+        version = router_version(id)
+        provenance = "process-start record"
+        asset_target = "/app/lib"
+      else
+        version = container.dig("Config", "Labels", "local-gateway.version")
+        provenance = "container-creation label"
+        asset_target = "/etc/traefik/traefik.yml"
+      end
+      version = "unknown" if version.nil? || version.empty?
+      comparison = version_comparison(version)
+      mount =
+        container
+          .fetch("Mounts", [])
+          .find { |entry| entry["Destination"] == asset_target }
+      source = "unknown"
+      source = mount.fetch("Source") if mount
+      "#{service} (#{id[0, 12]}): active=#{version}; #{comparison}; " \
+        "provenance=#{provenance}; mounted assets=#{source}\n"
+    end
+
+    def router_version(id)
+      @runner.call(
+        "exec",
+        id,
+        "cat",
+        "/tmp/local-development-gateway-version"
+      ).strip
+    rescue DockerError
+      nil
+    end
+
+    def version_comparison(version)
+      return "unknown" if version == "unknown"
+      return "current" if version == VERSION
+
+      "mismatch (installed=#{VERSION}); explicit service recreation required"
+    end
 
     def wait_until_ready
       deadline = @clock.call + @timeout
@@ -233,7 +288,7 @@ module LocalDevelopmentGateway
 
       Commands:
         up, ensure  Start or reuse the shared gateway
-        status      Show the gateway Compose status
+        status      Show Compose status and installed/active gateway versions
         ready       Check gateway readiness
         logs        Follow gateway logs
         down, stop  Stop the gateway only when unused
@@ -260,7 +315,8 @@ module LocalDevelopmentGateway
 
       case command
       when "up", "ensure"
-        @client.ensure_running(*@argv)
+        result = @client.ensure_running(*@argv)
+        @output.write(@client.status) if result == :reused
       when "status"
         @output.write(@client.status)
       when "ready"
