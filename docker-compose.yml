@@ -13,6 +13,7 @@ services:
       start_period: 1s
     labels:
       local-gateway: "true"
+      local-gateway.version: "${LOCAL_DEVELOPMENT_GATEWAY_VERSION:-unknown}"
     ports:
       - "127.0.0.1:80:80"
     restart: unless-stopped
@@ -29,7 +30,7 @@ services:
       - -I/app/lib
       - -rlocal_development_gateway
       - -e
-      - LocalDevelopmentGateway::DatabaseRouter.run
+      - File.write("/tmp/local-development-gateway-version", LocalDevelopmentGateway::VERSION); LocalDevelopmentGateway::DatabaseRouter.run
     healthcheck:
       test:
         - CMD
@@ -43,6 +44,7 @@ services:
       start_period: 1s
     labels:
       local-gateway: "true"
+      local-gateway.version: "${LOCAL_DEVELOPMENT_GATEWAY_VERSION:-unknown}"
     ports:
       - "127.0.0.1:1433:1433"
       - "127.0.0.1:5432:5432"

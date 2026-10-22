@@ -106,6 +106,21 @@ command that must not start a missing gateway, pass
 `ensure_running: false`; the block still runs and unused-gateway cleanup is
 attempted.
 
+### Installed versus active versions
+
+`bundle exec local-development-gateway status` reports the invoking gem's installed version separately from each running shared service's active version, provenance, and mounted asset path. Healthy CLI `up`/`ensure` reuse also prints these diagnostics without recreating containers. Ruby callers can inspect `LocalDevelopmentGateway.status`; `ensure_running` still returns `:reused` for healthy services, and `ready?` remains a health check, not an artifact-version check.
+
+For the database router, the active version comes from a record written by the Ruby process after loading the library at startup. For the HTTP gateway, it is the gateway configuration artifact version recorded in a container-creation label, not the Traefik image version. Missing records or labels are `unknown`. A legacy mount path containing a gem version is useful diagnostic evidence but does not prove which Ruby code or configuration the running process loaded. Neither version record is a content hash or proof that bind-mounted files have remained unchanged.
+
+Installing a newer gem does not update already-running services. A known difference is reported as `mismatch`; legacy `unknown` provenance cannot establish that an upgrade is active. Coordinate restart timing with all consumers before explicitly updating only the database router:
+
+```sh
+bundle exec local-development-gateway up --no-deps --force-recreate database-router
+bundle exec local-development-gateway status
+```
+
+Recreating the shared database router interrupts existing database client sessions across every consuming project/worktree. This command leaves the HTTP gateway and consumer database containers/volumes alone. If the HTTP gateway itself needs an update, separately coordinate and explicitly select `gateway` instead. Do not use `down` for a router-only update. After updating, confirm the selected service's active version is current and exercise an encrypted connection to the intended database; readiness alone is insufficient release verification.
+
 ## Worktree database services
 
 The gateway includes protocol drivers for encrypted SQL Server and PostgreSQL
