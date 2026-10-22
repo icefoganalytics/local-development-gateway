@@ -148,6 +148,21 @@ substitutes for private aliases. Database cloning is independent of this
 hostname correction: it selects source/destination containers explicitly and
 connects locally.
 
+### Private database alias length
+
+The complete `${COMPOSE_PROJECT_NAME}-<database-service>` alias is one DNS label. [DNS limits each label to 63 octets](https://www.rfc-editor.org/rfc/rfc1035.html#section-2.3.4); for these ASCII names, that is 63 characters. Budget the project name against the longest database service suffix in the stack: `63 - 1 - <service-name length>`.
+
+| Database service | Appended suffix | Maximum project-name length |
+| --- | --- | ---: |
+| `db` | `-db` | 60 |
+| `db_trav_com` | `-db_trav_com` | 51 |
+
+A 60-character project name plus `-db` fits exactly; 61 characters produces a 64-character alias. With `-db_trav_com`, the corresponding boundary is 51/52 characters. These are DNS budgets, not a claim that Compose rejects oversized aliases: `docker compose config` can render an alias that exceeds the limit. Configuration rendering alone does not prove DNS resolution or database connectivity.
+
+Use the effective project name selected by [Compose's native precedence](https://docs.docker.com/compose/how-tos/project-name/): `-p`, then `COMPOSE_PROJECT_NAME`, top-level `name:`, and the directory-derived default. Inspect the rendered `name`, database aliases, and application/job/test host settings through the consumer's documented wrapper and selected Compose files. Do not implement a separate project-name resolver, truncate/hash names automatically, or change existing short identities.
+
+For a new disposable stack, explicitly choose a unique project name within the budget before creating resources. For an existing stack, changing its project name can select different project-scoped volumes and appear to lose its database. Preserve the current project identity and data; any necessary rename requires an explicit consumer-owned data migration, not an automatic gateway correction. Keep qualified aliases private and desktop gateway hostnames unchanged. The gem neither validates nor shortens consumer aliases; upgrading it does not repair an oversized name.
+
 ### Canonical development and test Compose pattern
 
 Merge these entries into the project's existing development base and gateway
@@ -309,7 +324,8 @@ retaining cancellation-aware PostgreSQL routing despite Traefik's STARTTLS suppo
 
 1. Give each concurrent checkout a distinct Compose project name and desktop
    route hostname. Qualify every API/job/test database host with
-   `${COMPOSE_PROJECT_NAME}-<database-service>` using its existing driver setting.
+   `${COMPOSE_PROJECT_NAME}-<database-service>` using its existing driver setting,
+   within the [suffix-specific DNS budget](#private-database-alias-length).
 2. Advertise each qualified alias only on its private `default` network;
    preserve it through mapping-form network merges in base-only and gateway modes.
 3. Remove fixed database publications from development/test stacks; retain
@@ -433,6 +449,10 @@ It mounts the Docker socket so it can discover labelled containers. A read-only 
 | Generated hostname returns `404` | Confirm the web container has the route labels and is attached to `local-gateway`. |
 | A project uses normal ports unexpectedly | Confirm the gateway container is running and has `local-gateway=true`. |
 | Authentication rejects the callback | Confirm the generated hostname matches the allowed wildcard callback pattern. |
+
+## Release 0.2.4
+
+- Document suffix-specific DNS length budgets for private database aliases and data-safe project-name handling. No alias validation, shortening, routing, or lifecycle behavior changes.
 
 ## Release 0.2.3
 

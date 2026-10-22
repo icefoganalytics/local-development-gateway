@@ -44,6 +44,8 @@ preserves `default.aliases`. Configure all application/job/test contexts with
 their appropriate aliases, existing credentials, and intended database names;
 test contexts still select their own test database.
 
+The README's [private-alias length contract](../../README.md#private-database-alias-length) defines the DNS budget for each service suffix. Native Compose project selection and existing data identities remain authoritative; the gateway does not shorten or rename consumer projects.
+
 Gateway-mode development and test stacks publish no database host ports.
 Container consumers work with the base alone. Desktop access without the
 gateway is an explicit project-local port-publishing overlay, not an inherited
