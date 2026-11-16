@@ -66,7 +66,7 @@ Consuming projects do not need a gateway checkout. Add the released gem to
 their bundle and pin the compatible minor version:
 
 ```ruby
-gem "local-development-gateway", "~> 0.2"
+gem "local-development-gateway", "~> 0.3.0"
 ```
 
 Published gem: [`local-development-gateway`](https://rubygems.org/gems/local-development-gateway)
@@ -83,8 +83,7 @@ bundle exec local-development-gateway down
 
 `local-development-gateway` uses the installed asset path, the
 `local-gateway` Compose project and network labels, and the pinned minimum Ruby
-version declared by the gem. The `~> 0.2` constraint follows the consuming
-project's published Gemfile.
+version declared by the gem. Use `~> 0.3.0` for the private database alias API below.
 The repository's `bin/dev` is only a thin wrapper around this executable API.
 
 ### Ruby API lifecycle
@@ -131,7 +130,7 @@ connections. No host agent, DNS server, administrator privileges, or
 
 | Caller | Database hostname | Routing |
 | --- | --- | --- |
-| Application/API, background job, test container | `${COMPOSE_PROJECT_NAME}-<database-service>` | Qualified alias on that checkout's private `default` network; internal database port |
+| Application/API, background job, test container | `LocalDevelopmentGateway.database_alias(project_name:, service_name:)` | Qualified alias on that checkout's private `default` network; internal database port |
 | Desktop client, such as DBeaver | `db.<worktree>.<project>.localhost` | Encrypted, hostname-labelled gateway endpoint on loopback |
 | Database-local console, backup, clone command | `localhost` | Explicitly select the intended database container first |
 
@@ -150,18 +149,60 @@ connects locally.
 
 ### Private database alias length
 
-The complete `${COMPOSE_PROJECT_NAME}-<database-service>` alias is one DNS label. [DNS limits each label to 63 octets](https://www.rfc-editor.org/rfc/rfc1035.html#section-2.3.4); for these ASCII names, that is 63 characters. Budget the project name against the longest database service suffix in the stack: `63 - 1 - <service-name length>`.
+The complete `<project-name>-<database-service>` alias is one DNS label. [DNS limits each label to 63 octets](https://www.rfc-editor.org/rfc/rfc1035.html#section-2.3.4). Starting in 0.3.0, consumers can opt into a deterministic private alias without renaming their Compose project or its volumes:
 
-| Database service | Appended suffix | Maximum project-name length |
-| --- | --- | ---: |
-| `db` | `-db` | 60 |
-| `db_trav_com` | `-db_trav_com` | 51 |
+```ruby
+require "local_development_gateway"
 
-A 60-character project name plus `-db` fits exactly; 61 characters produces a 64-character alias. With `-db_trav_com`, the corresponding boundary is 51/52 characters. These are DNS budgets, not a claim that Compose rejects oversized aliases: `docker compose config` can render an alias that exceeds the limit. Configuration rendering alone does not prove DNS resolution or database connectivity.
+LocalDevelopmentGateway.database_alias(
+  project_name: "issue-123-example",
+  service_name: "db_trav_com"
+)
+# => "issue-123-example-db_trav_com"
+```
 
-Use the effective project name selected by [Compose's native precedence](https://docs.docker.com/compose/how-tos/project-name/): `-p`, then `COMPOSE_PROJECT_NAME`, top-level `name:`, and the directory-derived default. Inspect the rendered `name`, database aliases, and application/job/test host settings through the consumer's documented wrapper and selected Compose files. Do not implement a separate project-name resolver, truncate/hash names automatically, or change existing short identities.
+The pure public function preserves the **entire** `<project-name>-<service-name>` string when it fits, including an exact 63-byte fit. A 60-character project plus `-db` fits; 61 characters needs shortening. For `-db_trav_com`, the corresponding boundary is 51/52 characters. Longer aliases become the first 38 characters of the full alias, a hyphen, and the first 24 hexadecimal characters of SHA256 over `project_name + "\0" + service_name`. The NUL separator distinguishes identities whose hyphen-joined forms could otherwise be ambiguous. The 96-bit digest suffix provides collision resistance, not a mathematical guarantee that collisions are impossible. No persistent or random state is involved.
 
-For a new disposable stack, explicitly choose a unique project name within the budget before creating resources. For an existing stack, changing its project name can select different project-scoped volumes and appear to lose its database. Preserve the current project identity and data; any necessary rename requires an explicit consumer-owned data migration, not an automatic gateway correction. Keep qualified aliases private and desktop gateway hostnames unchanged. The gem neither validates nor shortens consumer aliases; upgrading it does not repair an oversized name.
+Inputs must be nonempty ASCII strings. Project names start with a lowercase letter or digit and otherwise contain lowercase letters, digits, hyphens, or underscores. Service names start with an ASCII letter or digit and otherwise contain ASCII letters, digits, hyphens, or underscores; case is preserved. Legacy underscores remain supported, even though they are not strict DNS hostname characters. Invalid inputs raise `ArgumentError`; the API does not normalize names.
+
+Use the effective project name selected by [Compose's native precedence](https://docs.docker.com/compose/how-tos/project-name/): `-p`/`--project-name`, then `COMPOSE_PROJECT_NAME`, top-level `name:`, and directory defaults (including native file/project-directory selection). Compose remains the identity owner: ask its ordinary `config --format json` output for `name`, rather than implementing a separate resolver or parsing `.env`. Do not use `--no-interpolate` for identity discovery; it does not reliably resolve interpolated top-level names.
+
+Derive each database alias from that name and its service name, then use the identical value for the private network alias and every matching application/job/test host setting. Preserve project names, volumes, images, credentials, database names, and desktop gateway hostnames. Upgrading the gem alone does not repair unchanged consumers: their wrappers and Compose configuration must adopt the API, then recreate only their affected database/client containers. This private-alias adoption does **not** require restarting the shared gateway or database router.
+
+### Runnable disposable consumer example
+
+[`examples/database-aliases`](examples/database-aliases) supplies real base and gateway-overlay Compose files and a small Ruby wrapper. This is an adoption example, not a downstream rollout or a replacement for a consumer's existing driver configuration, images, data, or lifecycle wrapper. Both databases use PostgreSQL to demonstrate distinct services with the same driver; `api`/`jobs` select `app_data` on `db`, while `test_api` selects `test_data` with separate credentials on `db_trav_com`. The development-only credentials must not be reused outside this disposable stack. No database publishes host ports.
+
+Run from `examples/database-aliases`. With the 0.3.0 gem available in your bundle, use `bundle exec ruby compose.rb`; with a compatible gem installed outside Bundler, use `ruby compose.rb`. To exercise this repository's source instead, use `bundle exec ruby -I../../lib compose.rb`. The command shape is:
+
+```text
+ruby compose.rb [native Compose global options] -- COMMAND [args]
+```
+
+Only the `--` delimiter is interpreted by the wrapper. Put native global options such as `-p`, `--project-name`, `--project-directory`, `--env-file`, `--profile`, and `-f` before it; put the Compose command and its arguments after it. With no globals, Compose uses its normal environment and defaults. Keep the same globals/environment for subsequent lifecycle commands so they select the same resources.
+
+```sh
+# Base-only: Compose chooses the project identity; only the databases start.
+bundle exec ruby compose.rb -- config
+bundle exec ruby compose.rb -- up -d --wait
+bundle exec ruby compose.rb -- run --rm api psql -c 'SELECT current_database(), current_user, inet_server_addr()'
+bundle exec ruby compose.rb -- run --rm jobs psql -c 'SELECT current_database(), current_user, inet_server_addr()'
+bundle exec ruby compose.rb -- run --rm test_api psql -c 'SELECT current_database(), current_user, inet_server_addr()'
+bundle exec ruby compose.rb -- down
+
+# Optional overlay: the shared gateway/network must already be available.
+# Choose a unique checkout-derived desktop hostname; do not change an existing
+# stack's project identity just to shorten its aliases.
+export GATEWAY_HOSTNAME=issue-123.database-aliases.localhost
+bundle exec ruby compose.rb -f compose.yml -f gateway.yml -- config
+bundle exec ruby compose.rb -f compose.yml -f gateway.yml -- up -d --wait
+bundle exec ruby compose.rb -f compose.yml -f gateway.yml -- run --rm api psql -c 'SELECT current_database()'
+bundle exec ruby compose.rb -f compose.yml -f gateway.yml -- down
+```
+
+Clients are in the `clients` profile so ordinary `up --wait` remains database-only; `run` explicitly selects each client. To keep clients running for `exec` checks, add `--profile clients` before `--`. The overlay attaches databases and all clients to shared ingress while preserving their mapping-form private networks. Desktop routes are `db.${GATEWAY_HOSTNAME}` and `secondary-db.${GATEWAY_HOSTNAME}` on port 5432 with SSL mode `require` and SNI; container clients still use private aliases and internal port 5432.
+
+The wrapper first renders `docker compose [exact globals] config --format json` with discovery-only `DB_HOST`/`DB_TRAV_COM_HOST` placeholders. It never starts that configuration. After reading the native `name`, it execs the requested command with derived aliases and the exact same globals, files, and inherited environment. It does not force a project name, change `COMPOSE_PROJECT_NAME`, or read `.env` itself. Keep project identity independent of these two host variables; they are reserved wrapper outputs. Configuration errors stop execution. Direct Compose invocation without those variables fails closed through `${DB_HOST:?run compose.rb}` and `${DB_TRAV_COM_HOST:?run compose.rb}`. Named volumes survive `down`; use `down -v` through the same wrapper/options only when deliberately discarding this example's disposable data. None of these commands mutates or restarts the shared gateway.
 
 ### Canonical development and test Compose pattern
 
@@ -172,44 +213,39 @@ existing configuration keys: `AZURE_SQL_HOST` is a SQL Server application
 example; `PGHOST` is the PostgreSQL/libpq equivalent. An application with a
 different PostgreSQL configuration key must set that key instead.
 
-For example, a wrapper-derived `COMPOSE_PROJECT_NAME=issue-123-example` gives
-private hosts `issue-123-example-db` and `issue-123-example-db_trav_com`.
-`GATEWAY_HOSTNAME=issue-123.example.localhost` separately identifies desktop
-routes. This requires no new Ruby API, generic database environment variable,
-or consumer runtime.
+For example, an effective Compose project name `issue-123-example` gives private hosts `issue-123-example-db` and `issue-123-example-db_trav_com`. Have the consumer wrapper export the API results as `DB_HOST` and `DB_TRAV_COM_HOST` for interpolation below. These are wrapper variables, not new application driver settings. `GATEWAY_HOSTNAME=issue-123.example.localhost` separately identifies desktop routes.
 
 ```yaml
 # docker-compose.development.yml: also safe without the gateway overlay.
 services:
   api:
     environment:
-      AZURE_SQL_HOST: "${COMPOSE_PROJECT_NAME}-db"
-      PGHOST: "${COMPOSE_PROJECT_NAME}-db_trav_com"
+      AZURE_SQL_HOST: "${DB_HOST:?derive with database_alias}"
+      PGHOST: "${DB_TRAV_COM_HOST:?derive with database_alias}"
   jobs:
     environment:
-      AZURE_SQL_HOST: "${COMPOSE_PROJECT_NAME}-db"
-      PGHOST: "${COMPOSE_PROJECT_NAME}-db_trav_com"
+      AZURE_SQL_HOST: "${DB_HOST:?derive with database_alias}"
+      PGHOST: "${DB_TRAV_COM_HOST:?derive with database_alias}"
   test_api:
     environment:
-      AZURE_SQL_HOST: "${COMPOSE_PROJECT_NAME}-db"
-      PGHOST: "${COMPOSE_PROJECT_NAME}-db_trav_com"
+      AZURE_SQL_HOST: "${DB_HOST:?derive with database_alias}"
+      PGHOST: "${DB_TRAV_COM_HOST:?derive with database_alias}"
   db:
     networks:
       default:
         aliases:
-          - "${COMPOSE_PROJECT_NAME}-db"
+          - "${DB_HOST:?derive with database_alias}"
   db_trav_com:
     networks:
       default:
         aliases:
-          - "${COMPOSE_PROJECT_NAME}-db_trav_com"
+          - "${DB_TRAV_COM_HOST:?derive with database_alias}"
 ```
 
 The example's driver assignments are illustrative. In
 [Travel Authorization's overlay](https://github.com/icefoganalytics/travel-authorization/blob/main/docker-compose.development.gateway.yml),
 `db` is PostgreSQL and `db_trav_com` is SQL Server: its PostgreSQL host setting
-must use `${COMPOSE_PROJECT_NAME}-db`, and its SQL Server host setting must use
-`${COMPOSE_PROJECT_NAME}-db_trav_com`, with labels/ports matching those drivers.
+must use the alias derived for `db`, and its SQL Server host setting must use the alias derived for `db_trav_com`, with labels/ports matching those drivers.
 Apply the rule separately to **every** database service, even when two services
 use the same driver. Preserve each context's existing credentials, internal
 port, and database name; tests must still select the test database rather than
@@ -322,10 +358,7 @@ retaining cancellation-aware PostgreSQL routing despite Traefik's STARTTLS suppo
 
 ### Downstream adoption checklist
 
-1. Give each concurrent checkout a distinct Compose project name and desktop
-   route hostname. Qualify every API/job/test database host with
-   `${COMPOSE_PROJECT_NAME}-<database-service>` using its existing driver setting,
-   within the [suffix-specific DNS budget](#private-database-alias-length).
+1. Give each concurrent checkout a distinct Compose project name and desktop route hostname. Derive each private alias from the native effective project name and database service with [`database_alias`](#private-database-alias-length), then set every matching API/job/test driver host. Do not rename an existing project or volumes to fit a DNS budget.
 2. Advertise each qualified alias only on its private `default` network;
    preserve it through mapping-form network merges in base-only and gateway modes.
 3. Remove fixed database publications from development/test stacks; retain
@@ -449,6 +482,11 @@ It mounts the Docker socket so it can discover labelled containers. A read-only 
 | Generated hostname returns `404` | Confirm the web container has the route labels and is attached to `local-gateway`. |
 | A project uses normal ports unexpectedly | Confirm the gateway container is running and has `local-gateway=true`. |
 | Authentication rejects the callback | Confirm the generated hostname matches the allowed wildcard callback pattern. |
+
+## Release 0.3.0
+
+- Add the opt-in `LocalDevelopmentGateway.database_alias(project_name:, service_name:)` API: preserve short/exact-fit identities and deterministically shorten long private aliases with a 96-bit SHA256 suffix.
+- Document native Compose identity discovery and provide a disposable multi-database consumer example for base-only and gateway modes. Existing consumer configuration is not rewritten; no shared gateway restart or project/volume rename is required.
 
 ## Release 0.2.4
 

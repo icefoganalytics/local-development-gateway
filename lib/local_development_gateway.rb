@@ -3,6 +3,7 @@
 require "open3"
 require "json"
 require "local_development_gateway/version"
+require "local_development_gateway/database_alias"
 
 module LocalDevelopmentGateway
   PROJECT_NAME = "local-gateway"
