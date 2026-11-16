@@ -441,13 +441,6 @@ It mounts the Docker socket so it can discover labelled containers. A read-only 
 | A project uses normal ports unexpectedly | Confirm the gateway container is running and has `local-gateway=true`. |
 | Authentication rejects a local URL | Check the consumer's configured application URL and identity-provider registration for the selected hostname. |
 
-## Unreleased
-
-- Package the router in a self-contained image and inline the HTTP configuration in Compose, eliminating host Ruby/source/config requirements for Docker-only installation. Preserve the optional Ruby lifecycle API and show running image identities in status.
-- Use frequent startup probes and thirty-second steady-state health checks.
-- Add an opt-in [shared database server example](examples/shared-databases/README.md) and [migration instructions for WRAP, ELCC, and Travel Authorization](docs/guides/docker-first-migration.md). Share server processes within a project, not between projects; preserve separate checkout databases and credentials. Existing consumer data and running stacks are not migrated automatically.
-- Relate private-network teardown to [issue #41](https://github.com/icefoganalytics/local-development-gateway/issues/41), without automatically pruning networks or claiming the consumer failure resolved.
-
 ## Release 0.3.3
 
 - Describe historical verification with generic server roles and checkout hostnames, preserving the tested versions and outcomes without consumer-specific identifiers. Runtime and runnable examples are unchanged.
