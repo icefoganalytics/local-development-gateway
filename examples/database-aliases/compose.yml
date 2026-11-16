@@ -1,0 +1,81 @@
+services:
+  db:
+    image: postgres:17-alpine
+    hostname: primary-db
+    environment:
+      POSTGRES_USER: example
+      POSTGRES_PASSWORD: development-only
+      POSTGRES_DB: app_data
+    volumes:
+      - primary-data:/var/lib/postgresql/data
+    networks:
+      default:
+        aliases:
+          - "${DB_HOST:?run compose.rb}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U example -d app_data"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  db_trav_com:
+    image: postgres:17-alpine
+    hostname: secondary-db
+    environment:
+      POSTGRES_USER: test_example
+      POSTGRES_PASSWORD: test-development-only
+      POSTGRES_DB: test_data
+    volumes:
+      - secondary-data:/var/lib/postgresql/data
+    networks:
+      default:
+        aliases:
+          - "${DB_TRAV_COM_HOST:?run compose.rb}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_example -d test_data"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  api:
+    image: postgres:17-alpine
+    profiles: [clients]
+    command: ["sleep", "infinity"]
+    environment:
+      PGHOST: "${DB_HOST:?run compose.rb}"
+      PGPORT: "5432"
+      PGUSER: example
+      PGPASSWORD: development-only
+      PGDATABASE: app_data
+    networks:
+      default: {}
+
+  jobs:
+    image: postgres:17-alpine
+    profiles: [clients]
+    command: ["sleep", "infinity"]
+    environment:
+      PGHOST: "${DB_HOST:?run compose.rb}"
+      PGPORT: "5432"
+      PGUSER: example
+      PGPASSWORD: development-only
+      PGDATABASE: app_data
+    networks:
+      default: {}
+
+  test_api:
+    image: postgres:17-alpine
+    profiles: [clients]
+    command: ["sleep", "infinity"]
+    environment:
+      PGHOST: "${DB_TRAV_COM_HOST:?run compose.rb}"
+      PGPORT: "5432"
+      PGUSER: test_example
+      PGPASSWORD: test-development-only
+      PGDATABASE: test_data
+    networks:
+      default: {}
+
+volumes:
+  primary-data: {}
+  secondary-data: {}

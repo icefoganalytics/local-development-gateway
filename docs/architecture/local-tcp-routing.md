@@ -33,7 +33,7 @@ PostgreSQL base/overlay examples live in the README's
 
 | Connection path | Destination selection |
 | --- | --- |
-| API, background job, test | `${COMPOSE_PROJECT_NAME}-<database-service>` on private Docker DNS, using the driver's existing host setting and internal port |
+| API, background job, test | Private qualified alias from `LocalDevelopmentGateway.database_alias(project_name:, service_name:)`, using the driver's existing host setting and internal port |
 | Desktop database client | Encrypted `db.<worktree>.<project>.localhost` endpoint; driver/hostname labels select the backend |
 | Database-local console, backup, clone | Explicitly selected container, then `localhost`; not gateway routing |
 
@@ -44,7 +44,7 @@ preserves `default.aliases`. Configure all application/job/test contexts with
 their appropriate aliases, existing credentials, and intended database names;
 test contexts still select their own test database.
 
-The README's [private-alias length contract](../../README.md#private-database-alias-length) defines the DNS budget for each service suffix. Native Compose project selection and existing data identities remain authoritative; the gateway does not shorten or rename consumer projects.
+The README's [private-alias length contract](../../README.md#private-database-alias-length) defines the opt-in 0.3.0 API: preserve full aliases through 63 bytes, otherwise retain a 38-character prefix and append a 96-bit SHA256 suffix over the NUL-separated project/service identity. Native Compose project selection and existing data identities remain authoritative; only private aliases shorten, never project names or volumes. Consumers must adopt the derived aliases in their own configuration; a gem upgrade alone does not repair them, and adoption requires no shared router restart.
 
 Gateway-mode development and test stacks publish no database host ports.
 Container consumers work with the base alone. Desktop access without the
@@ -59,14 +59,14 @@ the internal hostname correction.
 
 Requirements:
 
-- No consumer Ruby API calls.
+- No consumer Ruby API calls for desktop routing; long private aliases may opt into the pure alias helper through an existing wrapper.
 - No consumer-side address allocator.
 - No per-worktree host-port selection.
 - No bind-address environment variable passed from application code.
 - No consumer startup or shutdown hook solely for gateway routing.
 - No consumer cleanup call.
 - No manually maintained DBeaver port per worktree.
-- The consumer supplies only declarative service identity and internal-port metadata.
+- Desktop routing requires only declarative service identity and internal-port metadata.
 
 - No administrator or root installation.
 - No host `/etc/hosts`, DNS, resolver, systemd, or Windows-service changes.
@@ -279,13 +279,11 @@ instead of sharing a generic fixture layer.
 7. Stop A; A's route disappears while B remains available.
 8. Verify existing HTTP hostnames still use Traefik.
 9. Verify every host listener is loopback-only.
-10. Demonstrate consumer integration as a Compose-only diff.
+10. Demonstrate desktop routing integration as a Compose-only diff; private alias adoption may additionally call the pure alias helper from the consumer wrapper.
 
 ## Non-Goals
 
-- Changing consumer application code, adding new development wrapper runtimes,
-  or automatically mutating consumer networks. Existing Compose connection
-  settings and file selection must adopt the documented contract.
+- Automatically changing consumer application code, adding new development wrapper runtimes, or mutating consumer networks. Existing wrappers can opt into the pure alias API; their Compose connection settings and file selection must adopt the documented contract.
 - Requiring consumers to run DNS, a proxy, or host installation.
 - Assigning a different database port to each worktree.
 - Publishing development routes outside the machine.

@@ -23,6 +23,7 @@ Gem::Specification.new do |spec|
       "docs/architecture/local-tcp-routing.md",
       "config/traefik.yml",
       "bin/local-development-gateway",
+      "examples/database-aliases/*",
       "lib/**/*.rb"
     ]
   spec.bindir = "bin"
