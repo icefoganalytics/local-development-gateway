@@ -135,7 +135,7 @@ This sharing tradeoff does not fix private Docker network lifecycle/exhaustion
 ## Equivalent separate-engine baseline and RAM measurement
 
 For a comparison, use exactly the same image versions, settings, four logical
-databases, credentials, schema/data, queries, and warm-up on each topology. The
+databases per engine (eight total), credentials, schema/data, queries, and warm-up on each topology. The
 baseline uses one pair of servers **per checkout** (four engines total), while
 the shared topology uses one pair (two engines total). Groups `alpha` and `beta`
 have separate Compose projects, volumes, networks, and aliases such as
