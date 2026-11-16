@@ -485,6 +485,11 @@ It mounts the Docker socket so it can discover labelled containers. A read-only 
 | A project uses normal ports unexpectedly | Confirm the gateway container is running and has `local-gateway=true`. |
 | Authentication rejects the callback | Confirm the generated hostname matches the allowed wildcard callback pattern. |
 
+## Release 0.3.1
+
+- Resolve the existing Ruby lint diagnostics without suppressions or reduced coverage. Clarify range and assertion boundaries, retain EOF handling through `IOError`, and use supported OpenSSL digest construction and socket-readiness APIs.
+- Database routing, cancellation, lifecycle, and consumer alias contracts are unchanged; no shared gateway restart or consumer configuration change is required.
+
 ## Release 0.3.0
 
 - Add the opt-in `LocalDevelopmentGateway.database_alias(project_name:, service_name:)` API: preserve short/exact-fit identities and deterministically shorten long private aliases with a 96-bit SHA256 suffix.

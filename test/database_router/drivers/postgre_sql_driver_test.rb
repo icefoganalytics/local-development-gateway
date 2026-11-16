@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "io/wait"
 require "openssl"
 require "socket"
 require "timeout"
@@ -155,7 +156,7 @@ class PostgreSqlDriverTest < Minitest::Test
 
     client.write(Driver::CANCEL_REQUEST + [42, 1234].pack("NN"))
     assert_equal "", client.read
-    assert_nil IO.select([server], nil, nil, 0)
+    assert_nil server.wait_readable(0)
   ensure
     client&.close
     gateway&.close
@@ -187,7 +188,7 @@ class PostgreSqlDriverTest < Minitest::Test
       assert_equal "", Timeout.timeout(5) { tls.read }
       router_thread.join
     end
-    assert_nil IO.select([server], nil, nil, 0)
+    assert_nil server.wait_readable(0)
   ensure
     tls&.close
     client&.close
@@ -220,7 +221,7 @@ class PostgreSqlDriverTest < Minitest::Test
       assert_equal "", Timeout.timeout(5) { tls.read }
       router_thread.join
     end
-    assert_nil IO.select([server], nil, nil, 0)
+    assert_nil server.wait_readable(0)
   ensure
     tls&.close
     client&.close

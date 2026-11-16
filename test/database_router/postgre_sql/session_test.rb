@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "io/wait"
 require "socket"
 require "timeout"
 
@@ -62,7 +63,7 @@ class PostgreSqlSessionTest < Minitest::Test
     assert_raises(EOFError) do
       session.forward_response(gateway, downstream, route)
     end
-    assert_nil IO.select([client], nil, nil, 0)
+    assert_nil client.wait_readable(0)
   ensure
     [backend, gateway, client, downstream].compact.each(&:close)
   end

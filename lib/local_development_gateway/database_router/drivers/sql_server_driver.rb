@@ -80,7 +80,7 @@ module LocalDevelopmentGateway
               deadline: attempt_deadline
             )
           ]
-        rescue Error, EOFError, IOError, SystemCallError
+        rescue Error, IOError, SystemCallError
           target&.close
         end
         raise Error, "No labelled SQL Server backends are reachable"

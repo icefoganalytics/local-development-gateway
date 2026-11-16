@@ -33,7 +33,7 @@ module LocalDevelopmentGateway
         break if @record_buffer.bytesize < length + 5
 
         @handshake << @record_buffer.byteslice(5, length)
-        @record_buffer = @record_buffer.byteslice(length + 5..) || +""
+        @record_buffer = @record_buffer.byteslice((length + 5)..) || +""
       end
     end
 

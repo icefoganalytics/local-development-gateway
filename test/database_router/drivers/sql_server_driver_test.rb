@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "io/wait"
 require "socket"
 
 require "minitest/autorun"
@@ -42,8 +43,10 @@ class SqlServerDriverTest < Minitest::Test
     client.write(tds_message(hello.byteslice(10..)))
     assert_equal "selected-b", client.read
 
-    assert_equal %w[client-prelogin client-prelogin],
-                 2.times.map { received.pop }
+    assert_equal(
+      %w[client-prelogin client-prelogin],
+      2.times.map { received.pop }
+    )
   ensure
     client&.close
     gateway&.close
@@ -111,7 +114,12 @@ class SqlServerDriverTest < Minitest::Test
     first_thread = stalled_sql_server(first_server, stalled_closed)
     connector =
       lambda do |selected_route, deadline:|
-        Socket.tcp(selected_route.target_address, selected_route.port)
+        Socket.tcp(
+          selected_route.target_address,
+          selected_route.port,
+          connect_timeout:
+            deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        )
       end
     driver_thread = nil
 
@@ -133,7 +141,7 @@ class SqlServerDriverTest < Minitest::Test
       assert_instance_of LocalDevelopmentGateway::Error, driver_thread.value
     end
 
-    assert_nil IO.select([second_server], nil, nil, 0)
+    assert_nil second_server.wait_readable(0)
     assert_equal true, stalled_closed.pop
   ensure
     client&.close
