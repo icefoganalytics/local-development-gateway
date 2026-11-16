@@ -277,8 +277,7 @@ Database labels independently identify each server. In the mixed-driver example,
 
 PR #22 demonstrated:
 
-1. Two exact `db.<worktree>.wrap.localhost` names selected different labelled
-   containers for SQL Server and PostgreSQL.
+1. Two distinct checkout-specific `.localhost` names selected different labelled containers for SQL Server and PostgreSQL.
 2. Docker-label discovery updated routes without consumer lifecycle code;
    stopped routes were rejected while surviving routes remained reachable.
 3. Fragmented and oversized handshakes, stalled clients, duplicate routes,
@@ -304,8 +303,7 @@ Issue #24's corrective release additionally demonstrated:
 Issues #23 and #26's documentation release demonstrated on Linux with Docker
 Compose 5.6.0:
 
-1. Two isolated Compose projects, each with SQL Server 2022 `db` and PostgreSQL
-   17 `db_trav_com`, started concurrently without database host publications.
+1. Two isolated Compose projects, each with a SQL Server 2022 service and a PostgreSQL 17 service, started concurrently without database host publications.
    The repository's `bin/dev` Compose passthrough selected the temporary
    consumer fixtures; the existing shared gateway was reused.
 2. Real SQL/PG client containers representing API, job, and test contexts joined
