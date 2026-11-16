@@ -38,7 +38,7 @@ module LocalDevelopmentGateway
       upstream =
         Thread.new do
           IO.copy_stream(client, target)
-        rescue IOError, EOFError, OpenSSL::SSL::SSLError, SystemCallError
+        rescue IOError, OpenSSL::SSL::SSLError, SystemCallError
           nil
         ensure
           close_write(target)
@@ -50,7 +50,7 @@ module LocalDevelopmentGateway
           else
             IO.copy_stream(target, client)
           end
-        rescue IOError, EOFError, OpenSSL::SSL::SSLError, SystemCallError
+        rescue IOError, OpenSSL::SSL::SSLError, SystemCallError
           nil
         ensure
           close_connection(client)

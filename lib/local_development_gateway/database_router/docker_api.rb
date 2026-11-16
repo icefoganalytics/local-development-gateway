@@ -48,14 +48,14 @@ module LocalDevelopmentGateway
         raise Error, "Invalid chunked Docker API response" unless line_end
 
         size = Integer(body.byteslice(0, line_end).split(";", 2).first, 16)
-        body = body.byteslice(line_end + 2..)
+        body = body.byteslice((line_end + 2)..)
         break if size.zero?
         unless body.bytesize >= size + 2 && body.byteslice(size, 2) == "\r\n"
           raise Error, "Invalid chunked Docker API response"
         end
 
         decoded << body.byteslice(0, size)
-        body = body.byteslice(size + 2..)
+        body = body.byteslice((size + 2)..)
       end
       decoded
     rescue ArgumentError, TypeError

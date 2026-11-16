@@ -28,7 +28,7 @@ module LocalDevelopmentGateway
         @certificate.add_extension(
           extensions.create_extension("extendedKeyUsage", "serverAuth")
         )
-        @certificate.sign(@key, OpenSSL::Digest::SHA256.new)
+        @certificate.sign(@key, OpenSSL::Digest.new("SHA256"))
       end
 
       def context(&servername_callback)

@@ -40,7 +40,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     end
 
     def call(*args, capture: true, env: {})
-      @calls << { args: args, capture: capture }
+      @calls << { args: args, capture: capture, env: env }
       case args.first
       when "network"
         if @network_labels.nil?
@@ -170,28 +170,28 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     runner = FakeRunner.new(health: "starting\n")
 
     assert_equal :stopped, client(runner).stop_if_unused
-    assert runner.calls.any? { |call| call[:args].include?("down") }
+    assert(runner.calls.any? { |call| call[:args].include?("down") })
   end
 
   def test_reuses_a_ready_gateway
     runner = FakeRunner.new
 
     assert_equal :reused, client(runner).ensure_running
-    assert_empty runner.calls.select { |call| call[:args].first == "compose" }
+    assert_empty(runner.calls.select { |call| call[:args].first == "compose" })
   end
 
   def test_recreates_gateway_to_remove_obsolete_services
     runner = FakeRunner.new(obsolete_ids: "dns-id\n")
 
     assert_equal :started, client(runner).ensure_running
-    assert runner.calls.any? { |call| call[:args].include?("up") }
+    assert(runner.calls.any? { |call| call[:args].include?("up") })
   end
 
   def test_starts_and_waits_for_a_ready_gateway
     runner = FakeRunner.new(gateway_ids: "")
 
     assert_equal :started, client(runner).ensure_running
-    assert runner.calls.any? { |call| call[:args].include?("up") }
+    assert(runner.calls.any? { |call| call[:args].include?("up") })
   end
 
   def test_preserves_gateway_when_a_running_attached_container_exists
@@ -201,7 +201,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     CONTAINERS
 
     assert_equal :in_use, client(runner).stop_if_unused
-    refute runner.calls.any? { |call| call[:args].include?("down") }
+    refute(runner.calls.any? { |call| call[:args].include?("down") })
   end
 
   def test_stops_gateway_when_an_exited_attached_container_exists
@@ -226,7 +226,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     runner = FakeRunner.new
 
     assert_equal :stopped, client(runner).stop_if_unused
-    assert runner.calls.any? { |call| call[:args].include?("down") }
+    assert(runner.calls.any? { |call| call[:args].include?("down") })
   end
 
   def test_with_running_returns_the_block_result_and_stops_started_gateway
@@ -235,7 +235,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     result = client(runner).with_running { :result }
 
     assert_equal :result, result
-    assert runner.calls.any? { |call| call[:args].include?("down") }
+    assert(runner.calls.any? { |call| call[:args].include?("down") })
   end
 
   def test_with_running_reuses_a_ready_gateway_and_cleans_it_up
@@ -243,8 +243,8 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
     client(runner).with_running { :result }
 
-    refute runner.calls.any? { |call| call[:args].include?("up") }
-    assert runner.calls.any? { |call| call[:args].include?("down") }
+    refute(runner.calls.any? { |call| call[:args].include?("up") })
+    assert(runner.calls.any? { |call| call[:args].include?("down") })
   end
 
   def test_with_running_runs_without_starting_a_missing_gateway
@@ -253,7 +253,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     result = client(runner).with_running(ensure_running: false) { :result }
 
     assert_equal :result, result
-    refute runner.calls.any? { |call| call[:args].include?("up") }
+    refute(runner.calls.any? { |call| call[:args].include?("up") })
   end
 
   def test_with_running_cleans_up_an_existing_gateway_without_starting
@@ -262,8 +262,8 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     result = client(runner).with_running(ensure_running: false) { :result }
 
     assert_equal :result, result
-    refute runner.calls.any? { |call| call[:args].include?("up") }
-    assert runner.calls.any? { |call| call[:args].include?("down") }
+    refute(runner.calls.any? { |call| call[:args].include?("up") })
+    assert(runner.calls.any? { |call| call[:args].include?("down") })
   end
 
   def test_with_running_preserves_a_block_exception_when_cleanup_fails
@@ -281,7 +281,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       end
 
     assert_same original_error, error
-    assert runner.calls.any? { |call| call[:args].include?("down") }
+    assert(runner.calls.any? { |call| call[:args].include?("down") })
   end
 
   def test_with_running_cleans_up_when_startup_fails
@@ -298,7 +298,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       end
 
     assert_same startup_error, error
-    assert runner.calls.any? { |call| call[:args].include?("down") }
+    assert(runner.calls.any? { |call| call[:args].include?("down") })
   end
 
   def test_with_running_preserves_a_gateway_used_by_another_project
@@ -307,8 +307,8 @@ class LocalDevelopmentGatewayTest < Minitest::Test
         consumer-id\tconsumer-project\tweb\t
       CONTAINERS
 
-    assert_equal :result, client(runner).with_running { :result }
-    refute runner.calls.any? { |call| call[:args].include?("down") }
+    assert_equal(:result, client(runner).with_running { :result })
+    refute(runner.calls.any? { |call| call[:args].include?("down") })
   end
 
   def test_module_with_running_delegates_to_a_single_client
@@ -389,7 +389,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
     assert_equal 0, result
     assert_includes output.string, "active=0.2.0; mismatch"
-    refute runner.calls.any? { |call| call[:args].include?("up") }
+    refute(runner.calls.any? { |call| call[:args].include?("up") })
   end
 
   private
