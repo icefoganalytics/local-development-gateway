@@ -1,0 +1,6 @@
+**
+!Dockerfile
+!lib/
+!lib/**
+!bin/
+!bin/database-router

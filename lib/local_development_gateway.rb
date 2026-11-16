@@ -13,7 +13,6 @@ module LocalDevelopmentGateway
   OBSOLETE_SERVICE_NAMES = %w[dns tds-router].freeze
   ASSET_ROOT = File.expand_path("..", __dir__)
   COMPOSE_FILE = File.join(ASSET_ROOT, "docker-compose.yml")
-  TRAEFIK_CONFIG_FILE = File.join(ASSET_ROOT, "config", "traefik.yml")
 
   class Error < StandardError
   end
@@ -134,10 +133,7 @@ module LocalDevelopmentGateway
         "--file",
         COMPOSE_FILE,
         *args,
-        capture: capture,
-        env: {
-          "LOCAL_DEVELOPMENT_GATEWAY_VERSION" => VERSION
-        }
+        capture: capture
       )
     end
 
@@ -160,10 +156,12 @@ module LocalDevelopmentGateway
         container
           .fetch("Mounts", [])
           .find { |entry| entry["Destination"] == asset_target }
-      source = "unknown"
-      source = mount.fetch("Source") if mount
+      source = mount ? mount.fetch("Source") : "none"
+      image = container.dig("Config", "Image") || "unknown"
+      image_id = container["Image"] || "unknown"
       "#{service} (#{id[0, 12]}): active=#{version}; #{comparison}; " \
-        "provenance=#{provenance}; mounted assets=#{source}\n"
+        "provenance=#{provenance}; image=#{image}; image-id=#{image_id}; " \
+        "mounted assets=#{source}\n"
     end
 
     def router_version(id)

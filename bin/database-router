@@ -1,0 +1,10 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "local_development_gateway"
+
+File.write(
+  "/tmp/local-development-gateway-version",
+  LocalDevelopmentGateway::VERSION
+)
+LocalDevelopmentGateway::DatabaseRouter.run

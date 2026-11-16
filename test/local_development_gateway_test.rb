@@ -115,7 +115,6 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
     assert status.success?, stderr
     contents = Gem::Package.new(gem_path).contents
-    assert_includes contents, "config/traefik.yml"
     assert_includes contents, "docker-compose.yml"
     assert_includes contents, "lib/local_development_gateway/database_router.rb"
   end
@@ -137,7 +136,6 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     script = <<~RUBY
       require "local_development_gateway"
       puts LocalDevelopmentGateway::COMPOSE_FILE
-      puts LocalDevelopmentGateway::TRAEFIK_CONFIG_FILE
     RUBY
 
     stdout, stderr, status =
@@ -149,9 +147,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       )
 
     assert status.success?, stderr
-    compose_file, traefik_file = stdout.lines.map(&:strip)
-    assert File.file?(compose_file)
-    assert File.file?(traefik_file)
+    assert File.file?(stdout.strip)
   end
 
   def test_rejects_a_network_with_the_wrong_compose_scope

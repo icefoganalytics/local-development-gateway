@@ -27,7 +27,7 @@ public domain, external DNS provider, or internet-facing listener.
 
 ## Start once per day
 
-Use the small repository wrapper for the common lifecycle commands:
+For the published 0.3.x gem, use the small repository wrapper for the common lifecycle commands. For this branch's Docker-only candidate, follow [Docker-only installation](docs/guides/docker-installation.md), which covers building the unpublished image, installing from one Compose file, and coordinated upgrade/rollback.
 
 ```sh
 bin/dev up
@@ -67,8 +67,7 @@ gem "local-development-gateway", "~> 0.3.0"
 
 Published gem: [`local-development-gateway`](https://rubygems.org/gems/local-development-gateway)
 
-The gem packages the gateway Compose file and pinned Traefik configuration.
-Its executable provides the same lifecycle commands:
+The published 0.3.x gem packages the gateway Compose file and pinned Traefik configuration. Its executable provides the same lifecycle commands:
 
 ```sh
 bundle exec local-development-gateway up
@@ -103,7 +102,7 @@ attempted.
 
 ### Installed versus active versions
 
-`bundle exec local-development-gateway status` reports the invoking gem's installed version separately from each running shared service's active version, provenance, and mounted asset path. Healthy CLI `up`/`ensure` reuse also prints these diagnostics without recreating containers. Ruby callers can inspect `LocalDevelopmentGateway.status`; `ensure_running` still returns `:reused` for healthy services, and `ready?` remains a health check, not an artifact-version check.
+`bundle exec local-development-gateway status` reports the invoking gem's installed version separately from each running shared service's active version and provenance. Healthy CLI `up`/`ensure` reuse also prints these diagnostics without recreating containers. Ruby callers can inspect `LocalDevelopmentGateway.status`; `ensure_running` still returns `:reused` for healthy services, and `ready?` remains a health check, not an artifact-version check.
 
 For the database router, the active version comes from a record written by the Ruby process after loading the library at startup. For the HTTP gateway, it is the gateway configuration artifact version recorded in a container-creation label, not the Traefik image version. Missing records or labels are `unknown`. A legacy mount path containing a gem version is useful diagnostic evidence but does not prove which Ruby code or configuration the running process loaded. Neither version record is a content hash or proof that bind-mounted files have remained unchanged.
 
@@ -441,6 +440,13 @@ It mounts the Docker socket so it can discover labelled containers. A read-only 
 | Generated hostname returns `404` | Confirm the web container has the route labels and is attached to `local-gateway`. |
 | A project uses normal ports unexpectedly | Confirm the gateway container is running and has `local-gateway=true`. |
 | Authentication rejects a local URL | Check the consumer's configured application URL and identity-provider registration for the selected hostname. |
+
+## Unreleased
+
+- Package the router in a self-contained image and inline the HTTP configuration in Compose, eliminating host Ruby/source/config requirements for Docker-only installation. Preserve the optional Ruby lifecycle API and show running image identities in status.
+- Use frequent startup probes and thirty-second steady-state health checks.
+- Add an opt-in [shared database server example](examples/shared-databases/README.md) and [migration instructions for WRAP, ELCC, and Travel Authorization](docs/guides/docker-first-migration.md). Share server processes within a project, not between projects; preserve separate checkout databases and credentials. Existing consumer data and running stacks are not migrated automatically.
+- Relate private-network teardown to [issue #41](https://github.com/icefoganalytics/local-development-gateway/issues/41), without automatically pruning networks or claiming the consumer failure resolved.
 
 ## Release 0.3.3
 
