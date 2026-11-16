@@ -1,0 +1,97 @@
+#!/bin/sh
+# Disposable example only. No consumer configuration or host database clients.
+set -eu
+cd "$(dirname "$0")"
+
+usage() {
+  echo 'Usage: ./database shared|alpha|beta up|init CHECKOUT|psql CHECKOUT development|test [psql args...]|sqlcmd CHECKOUT development|test [sqlcmd args...]|remove-checkout CHECKOUT --remove-data|down|destroy --remove-all-data' >&2
+  exit 2
+}
+[ "$#" -ge 2 ] || usage
+DB_SERVER_GROUP=$1
+export DB_SERVER_GROUP
+case "$DB_SERVER_GROUP" in shared|alpha|beta) ;; *) usage ;; esac
+command=$2
+shift 2
+compose() {
+  docker compose -p "gateway-example-$DB_SERVER_GROUP" -f compose.yml "$@"
+}
+postgres_admin() {
+  compose exec -T -e PGPASSWORD='Example-Postgres-Admin9!' postgres \
+    psql -X -h "example-$DB_SERVER_GROUP-postgres" -U example_admin -d postgres -v ON_ERROR_STOP=1 "$@"
+}
+sql_admin() {
+  compose exec -T -e SQLCMDPASSWORD='Example-Sql-Admin9!' sqlserver \
+    /opt/mssql-tools18/bin/sqlcmd -S "example-$DB_SERVER_GROUP-sqlserver" -U sa -d master -C -b "$@"
+}
+checkout() {
+  case "${1:-}" in alpha|beta) identity=$1 ;; *) usage ;; esac
+  [ "$DB_SERVER_GROUP" = shared ] || [ "$DB_SERVER_GROUP" = "$identity" ] || usage
+}
+client() {
+  engine=$1
+  shift
+  checkout "${1:-}"
+  case "${2:-}" in development|test) environment=$2 ;; *) usage ;; esac
+  shift 2
+  database="${identity}_${environment}"
+  password="Example-${database}-Only9!"
+  if [ "$engine" = psql ]; then
+    compose exec -T -e "PGPASSWORD=$password" postgres psql -X \
+      -h "example-$DB_SERVER_GROUP-postgres" -U "$database" -d "$database" -v ON_ERROR_STOP=1 "$@"
+  else
+    compose exec -T -e "SQLCMDPASSWORD=$password" sqlserver /opt/mssql-tools18/bin/sqlcmd \
+      -S "example-$DB_SERVER_GROUP-sqlserver" -U "$database" -d "$database" -C -b "$@"
+  fi
+}
+
+case "$command" in
+  up)
+    [ "$#" -eq 0 ] || usage
+    compose up -d --wait --wait-timeout 240
+    ;;
+  init)
+    [ "$#" -eq 1 ] || usage
+    checkout "$1"
+    # Create all four non-admin identities first, so explicit SQL DENY users exist.
+    # Existing passwords are never changed; client authentication below detects drift.
+    for owner in alpha beta; do
+      for environment in development test; do
+        database="${owner}_${environment}"
+        password="Example-${database}-Only9!"
+        postgres_admin -v "role=$database" -v "password=$password" < postgres-role.sql
+        sql_admin -v "database=$database" "password=$password" -i /dev/stdin < sqlserver-login.sql
+      done
+    done
+    for environment in development test; do
+      database="${identity}_${environment}"
+      postgres_admin -v "database=$database" < postgres-database.sql
+      sql_admin -v "database=$database" -i /dev/stdin < sqlserver-database.sql
+      client psql "$identity" "$environment" -c 'SELECT current_database(), current_user;'
+      client sqlcmd "$identity" "$environment" -Q 'SELECT DB_NAME(), ORIGINAL_LOGIN();'
+    done
+    ;;
+  psql|sqlcmd)
+    client "$command" "$@"
+    ;;
+  remove-checkout)
+    [ "$#" -eq 2 ] && [ "$2" = --remove-data ] || usage
+    checkout "$1"
+    # Drop only this allowlisted checkout's databases. Connected clients cause a
+    # failure rather than force-disconnecting another process or dropping roles.
+    for environment in development test; do
+      database="${identity}_${environment}"
+      postgres_admin -c "DROP DATABASE IF EXISTS $database;"
+      sql_admin -Q "IF DB_ID(N'$database') IS NOT NULL DROP DATABASE [$database];"
+    done
+    ;;
+  down)
+    [ "$#" -eq 0 ] || usage
+    compose down
+    ;;
+  destroy)
+    [ "$#" -eq 1 ] && [ "$1" = --remove-all-data ] || usage
+    compose down --volumes
+    ;;
+  *) usage ;;
+esac

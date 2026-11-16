@@ -1,0 +1,22 @@
+# Optional: requires an already-running gateway; never starts or restarts it.
+services:
+  postgres:
+    networks:
+      default: {}
+      local-gateway: {}
+    labels:
+      local-gateway.tcp.driver: postgresql
+      local-gateway.tcp.hostname: postgres.example-${DB_SERVER_GROUP:?set DB_SERVER_GROUP}.localhost
+      local-gateway.tcp.port: '5432'
+  sqlserver:
+    networks:
+      default: {}
+      local-gateway: {}
+    labels:
+      local-gateway.tcp.driver: sql_server
+      local-gateway.tcp.hostname: sqlserver.example-${DB_SERVER_GROUP:?set DB_SERVER_GROUP}.localhost
+      local-gateway.tcp.port: '1433'
+networks:
+  local-gateway:
+    external: true
+    name: local-gateway
