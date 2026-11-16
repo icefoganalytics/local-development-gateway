@@ -442,6 +442,10 @@ It mounts the Docker socket so it can discover labelled containers. A read-only 
 | A project uses normal ports unexpectedly | Confirm the gateway container is running and has `local-gateway=true`. |
 | Authentication rejects a local URL | Check the consumer's configured application URL and identity-provider registration for the selected hostname. |
 
+## Release 0.3.3
+
+- Describe historical verification with generic server roles and checkout hostnames, preserving the tested versions and outcomes without consumer-specific identifiers. Runtime and runnable examples are unchanged.
+
 ## Release 0.3.2
 
 - Replace consumer-specific examples with a generic PostgreSQL primary and two SQL Server external-source simulators, plus a SQL-only subset and native diagnostic clients.
