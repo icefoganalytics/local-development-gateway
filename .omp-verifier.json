@@ -1,0 +1,11 @@
+{
+  "lint": {
+    "commands": {
+      "ruby": {
+        "tool": "rubocop",
+        "command": ["bundle", "exec", "rubocop", "--lint", "--format", "simple"],
+        "appendPaths": true
+      }
+    }
+  }
+}

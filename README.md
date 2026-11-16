@@ -379,14 +379,15 @@ prevent an attached, malicious container from connecting to another database.
 
 ## Development checks
 
-Install the locked development tools with `bundle install`. Run the Ruby
-formatter check and tests with:
+Install the locked development tools with `bundle install`. Ruby lint uses RuboCop's non-fixing `Lint` checks; Syntax Tree owns formatting. These checks run on the host, like the existing Ruby tests: `bin/dev` controls the shared gateway, not a test or lint container. `.omp-verifier.json` declares that native lint command explicitly.
 
 ```sh
+bundle exec rubocop --lint
 bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   Gemfile \
   Rakefile \
   lib/local_development_gateway.rb \
+  lib/local_development_gateway/database_alias.rb \
   lib/local_development_gateway/database_router.rb \
   lib/local_development_gateway/database_router/*.rb \
   lib/local_development_gateway/database_router/drivers/*.rb \
@@ -395,6 +396,7 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   lib/local_development_gateway/version.rb \
   bin/dev \
   bin/local-development-gateway \
+  examples/database-aliases/compose.rb \
   test/*.rb \
   test/database_router/*.rb \
   test/database_router/drivers/*.rb \
