@@ -13,8 +13,9 @@ global_options = ARGV.take(delimiter)
 command = ARGV.drop(delimiter + 1)
 compose = ["docker", "compose", *global_options]
 discovery_environment = {
-  "DB_HOST" => "alias-discovery-only",
-  "DB_TRAV_COM_HOST" => "alias-discovery-only"
+  "POSTGRES_HOST" => "alias-discovery-only",
+  "REPORTING_HOST" => "alias-discovery-only",
+  "ARCHIVE_HOST" => "alias-discovery-only"
 }
 
 # Render only: never create services with discovery placeholders. Compose owns
@@ -26,15 +27,20 @@ exit(status.exitstatus || 1) unless status.success?
 
 project_name = JSON.parse(configuration).fetch("name")
 host_environment = {
-  "DB_HOST" =>
+  "POSTGRES_HOST" =>
     LocalDevelopmentGateway.database_alias(
       project_name: project_name,
       service_name: "db"
     ),
-  "DB_TRAV_COM_HOST" =>
+  "REPORTING_HOST" =>
     LocalDevelopmentGateway.database_alias(
       project_name: project_name,
-      service_name: "db_trav_com"
+      service_name: "db_reporting"
+    ),
+  "ARCHIVE_HOST" =>
+    LocalDevelopmentGateway.database_alias(
+      project_name: project_name,
+      service_name: "db_archive"
     )
 }
 

@@ -1,81 +1,105 @@
 services:
   db:
     image: postgres:17-alpine
-    hostname: primary-db
     environment:
       POSTGRES_USER: example
       POSTGRES_PASSWORD: development-only
-      POSTGRES_DB: app_data
+      POSTGRES_DB: app_development
     volumes:
-      - primary-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     networks:
       default:
         aliases:
-          - "${DB_HOST:?run compose.rb}"
+          - "${POSTGRES_HOST:?run compose.rb}"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U example -d app_data"]
+      test: ["CMD-SHELL", "pg_isready -U example -d app_development"]
       interval: 2s
       timeout: 2s
       retries: 30
 
-  db_trav_com:
-    image: postgres:17-alpine
-    hostname: secondary-db
+  db_reporting:
+    image: mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04
     environment:
-      POSTGRES_USER: test_example
-      POSTGRES_PASSWORD: test-development-only
-      POSTGRES_DB: test_data
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: "Example-Only_Strong9!"
     volumes:
-      - secondary-data:/var/lib/postgresql/data
+      - reporting-data:/var/opt/mssql
     networks:
       default:
         aliases:
-          - "${DB_TRAV_COM_HOST:?run compose.rb}"
+          - "${REPORTING_HOST:?run compose.rb}"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U test_example -d test_data"]
-      interval: 2s
-      timeout: 2s
+      test:
+        - CMD-SHELL
+        - /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -b -Q "SELECT 1"
+      interval: 5s
+      timeout: 5s
       retries: 30
+      start_period: 20s
 
-  api:
+  db_archive:
+    image: mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: "Example-Only_Strong9!"
+    volumes:
+      - archive-data:/var/opt/mssql
+    networks:
+      default:
+        aliases:
+          - "${ARCHIVE_HOST:?run compose.rb}"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -b -Q "SELECT 1"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  postgres_client:
     image: postgres:17-alpine
     profiles: [clients]
-    command: ["sleep", "infinity"]
+    entrypoint: ["psql"]
+    command: []
     environment:
-      PGHOST: "${DB_HOST:?run compose.rb}"
+      PGHOST: "${POSTGRES_HOST:?run compose.rb}"
       PGPORT: "5432"
       PGUSER: example
       PGPASSWORD: development-only
-      PGDATABASE: app_data
+      PGDATABASE: app_development
     networks:
       default: {}
 
-  jobs:
-    image: postgres:17-alpine
+  reporting_client:
+    image: mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04
     profiles: [clients]
-    command: ["sleep", "infinity"]
+    entrypoint: ["/opt/mssql-tools18/bin/sqlcmd", "-C", "-b"]
+    command: []
     environment:
-      PGHOST: "${DB_HOST:?run compose.rb}"
-      PGPORT: "5432"
-      PGUSER: example
-      PGPASSWORD: development-only
-      PGDATABASE: app_data
+      SQLCMDSERVER: "tcp:${REPORTING_HOST:?run compose.rb},1433"
+      SQLCMDUSER: sa
+      SQLCMDPASSWORD: "Example-Only_Strong9!"
+      SQLCMDDBNAME: master
     networks:
       default: {}
 
-  test_api:
-    image: postgres:17-alpine
+  archive_client:
+    image: mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04
     profiles: [clients]
-    command: ["sleep", "infinity"]
+    entrypoint: ["/opt/mssql-tools18/bin/sqlcmd", "-C", "-b"]
+    command: []
     environment:
-      PGHOST: "${DB_TRAV_COM_HOST:?run compose.rb}"
-      PGPORT: "5432"
-      PGUSER: test_example
-      PGPASSWORD: test-development-only
-      PGDATABASE: test_data
+      SQLCMDSERVER: "tcp:${ARCHIVE_HOST:?run compose.rb},1433"
+      SQLCMDUSER: sa
+      SQLCMDPASSWORD: "Example-Only_Strong9!"
+      SQLCMDDBNAME: master
     networks:
       default: {}
 
 volumes:
-  primary-data: {}
-  secondary-data: {}
+  postgres-data: {}
+  reporting-data: {}
+  archive-data: {}
