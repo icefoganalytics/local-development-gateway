@@ -8,29 +8,23 @@ services:
       local-gateway.tcp.hostname: "db.${GATEWAY_HOSTNAME:?set a unique checkout-derived GATEWAY_HOSTNAME}"
       local-gateway.tcp.port: "5432"
 
-  db_trav_com:
+  db_reporting:
     networks:
       default: {}
       local-gateway: {}
     labels:
-      local-gateway.tcp.driver: postgresql
-      local-gateway.tcp.hostname: "secondary-db.${GATEWAY_HOSTNAME:?set a unique checkout-derived GATEWAY_HOSTNAME}"
-      local-gateway.tcp.port: "5432"
+      local-gateway.tcp.driver: sql_server
+      local-gateway.tcp.hostname: "reporting.${GATEWAY_HOSTNAME:?set a unique checkout-derived GATEWAY_HOSTNAME}"
+      local-gateway.tcp.port: "1433"
 
-  api:
+  db_archive:
     networks:
       default: {}
       local-gateway: {}
-
-  jobs:
-    networks:
-      default: {}
-      local-gateway: {}
-
-  test_api:
-    networks:
-      default: {}
-      local-gateway: {}
+    labels:
+      local-gateway.tcp.driver: sql_server
+      local-gateway.tcp.hostname: "archive.${GATEWAY_HOSTNAME:?set a unique checkout-derived GATEWAY_HOSTNAME}"
+      local-gateway.tcp.port: "1433"
 
 networks:
   local-gateway:

@@ -5,31 +5,21 @@ validated on Linux. Windows Docker Desktop validation remains outstanding.
 
 ## Request
 
-Extend Local Development Gateway so a participating Docker Compose project can
-expose hostname-routed database services with the same simple declarative
-integration it already uses for HTTP services.
+Participating Docker Compose projects expose hostname-routed database services through the same declarative integration used for HTTP services. A consumer adds routing metadata and network membership to its existing gateway overlay; it does not implement address allocation, DNS, host-file management, route startup orchestration, or cleanup.
 
-For WRAP, database routing should require only a small change to
-`docker-compose.development.gateway.yml`. WRAP must not implement address
-allocation, routing, DNS, host-file management, startup orchestration, or
-cleanup.
-
-The initial endpoints are:
+For a generic checkout with `GATEWAY_HOSTNAME=issue-123.example.localhost`, the mixed-driver example exposes:
 
 ```text
-db.<worktree>.wrap.localhost:1433 # SQL Server
-db.<worktree>.wrap.localhost:5432 # PostgreSQL
+db.issue-123.example.localhost:5432        # PostgreSQL primary
+reporting.issue-123.example.localhost:1433 # SQL Server external source
+archive.issue-123.example.localhost:1433   # SQL Server external source
 ```
 
-Each must connect from DBeaver to that worktree's labelled database container.
+Each endpoint connects a desktop client such as DBeaver to that checkout's labelled server. A SQL-only consumer can expose just the reporting server. Consumer service names and credentials remain application-owned; these generic roles are examples rather than required application architecture.
 
 ## Consumer Contract
 
-A participating project keeps its databases on its private `default` network
-and adds the existing `local-gateway` network plus three gateway-owned labels:
-driver, desktop hostname, and internal port. The copyable SQL Server and
-PostgreSQL base/overlay examples live in the README's
-[canonical Compose pattern](../../README.md#canonical-development-and-test-compose-pattern).
+A participating project keeps its databases on its private `default` network and adds the existing `local-gateway` network plus three gateway-owned labels: driver, desktop hostname, and internal port. The README's [canonical Compose pattern](../../README.md#canonical-development-and-test-compose-pattern) explains the mapping; [`examples/database-aliases`](../../examples/database-aliases) owns the runnable base and overlay.
 
 | Connection path | Destination selection |
 | --- | --- |
@@ -37,12 +27,11 @@ PostgreSQL base/overlay examples live in the README's
 | Desktop database client | Encrypted `db.<worktree>.<project>.localhost` endpoint; driver/hostname labels select the backend |
 | Database-local console, backup, clone | Explicitly selected container, then `localhost`; not gateway routing |
 
-Each concurrent checkout has a distinct Compose project name. Each database
-advertises its qualified alias only on that project's `default` network.
-Use mapping-form database networks in the base and gateway overlay so Compose
-preserves `default.aliases`. Configure all application/job/test contexts with
-their appropriate aliases, existing credentials, and intended database names;
-test contexts still select their own test database.
+Each concurrent checkout has a distinct Compose project name. Each database advertises its qualified alias only on that project's `default` network. Use mapping-form database networks in the base and gateway overlay so Compose preserves `default.aliases`. Configure every API, job, and test context with the alias for its actual database server and that context's existing credentials and logical database name.
+
+The generic mixed-driver example has PostgreSQL `db` and SQL Server `db_reporting`/`db_archive`; its wrapper exports their private aliases as `POSTGRES_HOST`, `REPORTING_HOST`, and `ARCHIVE_HOST`. Development and tests share those servers while selecting distinct logical databases: `app_development`/`app_test`, `reporting_development`/`reporting_test`, and `archive_development`/`archive_test`. A SQL-only application follows the same rule for its single server. Tests do not select a different driver or external-source server merely because they are tests.
+
+The example's native `psql`/`sqlcmd` clients are diagnostic stand-ins. Real APIs, jobs, and test runners translate these aliases into their own driver configuration; standard `PG*`/`SQLCMD*` variables configure only clients that actually support them. The README owns database creation, identity-query, and disposable-volume cleanup commands. This example does not change consumer migrations, authorization, or test-reset policy.
 
 The README's [private-alias length contract](../../README.md#private-database-alias-length) defines the opt-in 0.3.0 API: preserve full aliases through 63 bytes, otherwise retain a 38-character prefix and append a 96-bit SHA256 suffix over the NUL-separated project/service identity. Native Compose project selection and existing data identities remain authoritative; only private aliases shorten, never project names or volumes. Consumers must adopt the derived aliases in their own configuration; a gem upgrade alone does not repair them, and adoption requires no shared router restart.
 
@@ -124,7 +113,7 @@ All implementation belongs in this repository. The gateway must:
 1. Discover participating containers and their routing metadata through Docker.
 2. Derive or read the requested hostname and target internal port.
 3. Distinguish concurrent worktrees even when they expose the same internal TCP port.
-4. Make `db.<worktree>.wrap.localhost` resolve or connect to the correct worktree route on the local machine.
+4. Make checkout-specific endpoints such as `db.issue-123.example.localhost` connect to the correct local route.
 5. Forward the raw TCP stream to the labelled container.
 6. Add, update, and remove routes automatically as containers start, restart, and stop.
 7. Preserve stable routing for a worktree while it remains active.
@@ -140,7 +129,7 @@ supported database handshake:
 
 ```text
 DBeaver
-  -> db.<worktree>.wrap.localhost:<driver port>
+  -> db.issue-123.example.localhost:<driver port>
   -> Docker publishes the database router on loopback
   -> driver reads the encrypted handshake hostname
   -> router selects the matching Docker label
@@ -196,16 +185,9 @@ instead of sharing a generic fixture layer.
 
 ## Hostname Contract
 
-- Keep the established WRAP hostname family.
-- HTTP remains:
-  - `<worktree>.wrap.localhost`
-  - `api.<worktree>.wrap.localhost`
-  - `mail.<worktree>.wrap.localhost`
-- SQL Server is:
-  - `db.<worktree>.wrap.localhost`
-- PostgreSQL uses the same hostname on port `5432`.
-- Do not migrate consumers to `.test`, `.alt`, `.local`, `home.arpa`, or an externally registered domain as part of this issue.
-- Do not require host resolver configuration; `.localhost` must retain its native loopback behavior.
+Consumers choose checkout-derived `.localhost` hostnames without requiring a resolver change. A generic HTTP family can use `example.localhost`, `api.example.localhost`, and `mail.example.localhost`, with `issue-123.` inserted before `example.localhost` for a separate worktree. Existing consumers retain their established hostname families; adopting private aliases does not rename desktop routes.
+
+Database labels independently identify each server. In the mixed-driver example, `db.<worktree>.example.localhost` selects PostgreSQL and `reporting.<worktree>.example.localhost`/`archive.<worktree>.example.localhost` select the two SQL Server instances. Different drivers may share a hostname because their listeners differ; same-driver servers must have distinct hostname identities. Do not migrate consumers to `.test`, `.alt`, `.local`, `home.arpa`, or an externally registered domain as part of alias adoption. `.localhost` retains native loopback behavior without host resolver configuration.
 
 ## Security Boundary
 
@@ -246,8 +228,7 @@ instead of sharing a generic fixture layer.
 
 ## Compatibility
 
-- DBeaver connects to `db.<worktree>.wrap.localhost` on `1433` for SQL Server
-  or `5432` for PostgreSQL.
+- DBeaver connects to the selected labelled `.localhost` endpoint on port `1433` for SQL Server or `5432` for PostgreSQL.
 - SQL Server clients must enable encryption and trust the development server
   certificate.
 - PostgreSQL clients must use SSL mode `require`, send SNI, and permit the
@@ -270,9 +251,8 @@ instead of sharing a generic fixture layer.
 1. Start worktree A and worktree B with the same database driver and internal
    port.
 2. Connect a DBeaver-equivalent client to
-   `db.<A>.wrap.localhost:<driver port>`; observe bytes reaching only A.
-3. Connect to `db.<B>.wrap.localhost:<driver port>`; observe bytes reaching
-   only B.
+   `db.<A>.example.localhost:<driver port>`; observe bytes reaching only A.
+3. Connect to `db.<B>.example.localhost:<driver port>`; observe bytes reaching only B.
 4. Repeat the routing check for both `sql_server` and `postgresql`.
 5. Keep both connections possible concurrently without alternate host ports.
 6. Recreate A's database container; the same hostname routes to its replacement.
