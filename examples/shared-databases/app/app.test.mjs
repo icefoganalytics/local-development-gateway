@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { after, before, beforeEach, test } from "node:test"
+
 import { connect, migrate } from "./database.mjs"
 
 // Never let a test cleanup command use development or administrator credentials.

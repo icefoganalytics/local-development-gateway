@@ -1,5 +1,6 @@
 import { createServer } from "node:http"
 import { once } from "node:events"
+
 import { connect, migrate } from "./database.mjs"
 
 const command = process.argv[2] ?? "serve"

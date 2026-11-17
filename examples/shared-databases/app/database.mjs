@@ -1,5 +1,6 @@
-import knex from "knex"
 import { fileURLToPath } from "node:url"
+
+import knex from "knex"
 
 export function connect(database = process.env.DB_NAME) {
   const isPostgres = process.env.DB_ENGINE === "postgres"
