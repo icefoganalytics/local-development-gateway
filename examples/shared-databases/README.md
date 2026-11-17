@@ -14,7 +14,7 @@ This synthetic consumer uses a small Ruby Compose launcher, a real Node HTTP app
 | Shared server startup, backup, provisioning, and retirement | Project owner, using the server Compose project |
 | Browser/desktop routing | Machine-wide gateway, independently managed |
 
-Sharing removes repeated engine containers and per-checkout server lifecycle, but adds a project-level provisioning and backup responsibility. The two explicit provisioning services below are that remaining responsibility, not code to copy into every wrapper. They run existing engine-specific SQL with native clients; they never run during normal application startup. Moving this responsibility out of the wrapper does not make it disappear.
+Sharing removes repeated engine containers and per-checkout server lifecycle, but adds a project-level provisioning and backup responsibility. The project owner calls `bin/provision CHECKOUT_NAME` with `DB_ENGINE=postgres` or `DB_ENGINE=sqlserver`; consumers do not select SQL clients or maintain SQL grants. The command selects an internal Compose adapter. `provisioning/checkout.sh` validates the checkout name and derives both environment identities; each engine adapter receives only a database/login name and password and owns native administration. The SQL files are private adapter details, not application migrations or files to copy into every consumer. This example-level interface is not a separately published provisioning package.
 
 ## Prerequisites
 
@@ -38,13 +38,13 @@ alpha="$checkouts/alpha/bin/dev"
 beta="$checkouts/beta/bin/dev"
 
 docker compose -p gateway-example-shared -f "$servers" up -d --wait sqlserver
-CHECKOUT_NAME=alpha docker compose -p gateway-example-shared -f "$servers" run --rm --no-deps provision-sqlserver
-CHECKOUT_NAME=beta docker compose -p gateway-example-shared -f "$servers" run --rm --no-deps provision-sqlserver
+bin/provision alpha
+bin/provision beta
 # Reconcile explicit denials after both logins exist.
-CHECKOUT_NAME=alpha docker compose -p gateway-example-shared -f "$servers" run --rm --no-deps provision-sqlserver
+bin/provision alpha
 ```
 
-Provisioning creates databases/logins, not application tables. It retains existing data/passwords, rejects elevated identities, and restores restrictions. The provisioning services validate `CHECKOUT_NAME` before executing any SQL. Only these explicitly selected setup services receive administrator credentials.
+Provisioning creates databases/logins, not application tables. It retains existing data/passwords, rejects elevated identities, and restores restrictions. Shared validation runs before either adapter executes SQL, including when its internal Compose service is invoked directly. Only explicitly selected setup services receive administrator credentials. A failed adapter exits nonzero; provisioning is repeatable, not transactional across both databases.
 
 ## Normal checkout work
 
@@ -90,7 +90,7 @@ SQL Server logins have no server roles. Database ownership remains with `sa`; ea
 
 ## PostgreSQL counterpart
 
-Stop both checkout apps, then export `DB_ENGINE=postgres`. Start `postgres` instead of `sqlserver`, and run `provision-postgres` instead of `provision-sqlserver` in the project-owner commands. Repeat the same normal checkout commands and marker checks. Both server services use `gateway-example-shared_default`; only the selected engine needs to run.
+Stop both checkout apps, then export `DB_ENGINE=postgres`. Start `postgres` instead of `sqlserver` in the project-owner startup command. Run the same `bin/provision alpha`, `bin/provision beta`, and `bin/provision alpha` commands; no SQL-client or provisioning-service selection is needed. Repeat the same normal checkout commands and marker checks. Both server services use `gateway-example-shared_default`; only the selected engine needs to run.
 
 PostgreSQL cannot `USE` another database. Verify alternate connections with otherwise-valid source credentials:
 

@@ -23,7 +23,7 @@ The generic [shared-database example](../../examples/shared-databases/README.md)
 
 ## Downstream complexity acceptance
 
-Do not replace a consumer's wrapper with a shared-database management CLI. The example now keeps only ordinary application command methods and Compose delegation in `bin/dev`. Server startup and explicit provisioning use native Compose; engine-specific administration does not enter the consumer command dispatcher. Development/test connection overrides remain visible in Compose, and migrations/test reset remain application-owned.
+Do not replace a consumer's wrapper with a shared-database management CLI. The example keeps only ordinary application command methods and Compose delegation in `bin/dev`. Server startup uses native Compose; the separate project-owner `bin/provision CHECKOUT_NAME` operation selects an internal adapter using `DB_ENGINE`. Shared checkout validation and environment naming are engine-neutral; native clients and permission SQL live inside `provisioning/postgres` and `provisioning/sqlserver`. Engine-specific administration does not enter the consumer command dispatcher or gateway runtime. Development/test connection overrides remain visible in Compose, and migrations/test reset remain application-owned.
 
 For an ELCC-shaped adoption, the intended responsibility delta is:
 

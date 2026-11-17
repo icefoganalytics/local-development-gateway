@@ -53,24 +53,9 @@ services:
       PGPASSWORD: Example-Postgres-Admin9!
       PGDATABASE: postgres
     volumes:
-      - ./postgres-role.sql:/setup/role.sql:ro
-      - ./postgres-database.sql:/setup/database.sql:ro
-    entrypoint: [bash, -euc]
-    command:
-      - |
-        if [[ ! "$$CHECKOUT_NAME" =~ ^[a-z][a-z0-9_]{0,31}$$ ]]; then
-          echo "Set CHECKOUT_NAME to the checkout's Compose project name" >&2
-          exit 1
-        fi
-
-        for environment in development test; do
-          name="app_$${CHECKOUT_NAME}_$$environment"
-          psql -X -v ON_ERROR_STOP=1 \
-            -v "role=$$name" -v "password=Example-$$name-Only9!" \
-            -f /setup/role.sql
-          psql -X -v ON_ERROR_STOP=1 \
-            -v "database=$$name" -f /setup/database.sql
-        done
+      - ./provisioning/checkout.sh:/setup/checkout.sh:ro
+      - ./provisioning/postgres:/adapter:ro
+    entrypoint: [bash, /setup/checkout.sh]
 
   provision-sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04
@@ -79,24 +64,9 @@ services:
       CHECKOUT_NAME: ${CHECKOUT_NAME:-}
       SQLCMDPASSWORD: Example-Sql-Admin9!
     volumes:
-      - ./sqlserver-login.sql:/setup/login.sql:ro
-      - ./sqlserver-database.sql:/setup/database.sql:ro
-    entrypoint: [bash, -euc]
-    command:
-      - |
-        if [[ ! "$$CHECKOUT_NAME" =~ ^[a-z][a-z0-9_]{0,31}$$ ]]; then
-          echo "Set CHECKOUT_NAME to the checkout's Compose project name" >&2
-          exit 1
-        fi
-
-        for environment in development test; do
-          name="app_$${CHECKOUT_NAME}_$$environment"
-          /opt/mssql-tools18/bin/sqlcmd -S sqlserver -U sa -d master -C -b \
-            -v "database=$$name" "password=Example-$$name-Only9!" \
-            -i /setup/login.sql
-          /opt/mssql-tools18/bin/sqlcmd -S sqlserver -U sa -d master -C -b \
-            -v "database=$$name" -i /setup/database.sql
-        done
+      - ./provisioning/checkout.sh:/setup/checkout.sh:ro
+      - ./provisioning/sqlserver:/adapter:ro
+    entrypoint: [bash, /setup/checkout.sh]
 
 volumes:
   postgres-data: {}
