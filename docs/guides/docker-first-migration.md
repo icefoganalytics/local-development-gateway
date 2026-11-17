@@ -21,6 +21,23 @@ The consumer inventory below was read from these local source revisions. Recheck
 
 The generic [shared-database example](../../examples/shared-databases/README.md) demonstrates the isolation contract using SQL Server 2022 and PostgreSQL 17. It is not a drop-in consumer deployment: WRAP requires a newer full-text-enabled engine, ELCC currently uses SQL Server 2019, and Travel currently uses PostgreSQL 14.4 plus two different SQL Server versions. Consumer engine upgrades require independent restore and behavior evidence.
 
+## Downstream complexity acceptance
+
+Do not replace a consumer's wrapper with a shared-database management CLI. The example now keeps only ordinary application command methods and Compose delegation in `bin/dev`. Server startup and explicit provisioning use native Compose; engine-specific administration does not enter the consumer command dispatcher. Development/test connection overrides remain visible in Compose, and migrations/test reset remain application-owned.
+
+For an ELCC-shaped adoption, the intended responsibility delta is:
+
+| Existing owner | Consumer change | Remaining responsibility |
+| --- | --- | --- |
+| `bin/dev` command methods and Compose delegation | Retain; do not add engine/group dispatch or database deletion commands | Normal application workflow |
+| Gateway calls around `up`, `down`, and `run` | Apply section A's independently managed gateway choice; preserve editor-bridge hooks | Machine gateway managed once |
+| Checkout `db` service and dependencies on it | Replace with a project-server connection and external network | Project owner starts and maintains the server |
+| Administrator-powered application database creation | Remove after explicit database/login provisioning is established | One project-owned provisioning operation per checkout |
+| Application migrations and test setup | Retain against separate restricted development/test connections | Consumer owns schema and test cleanup |
+| Backup/restore and destructive reset commands | Retarget existing owners, never add parallel generic helpers | Explicit database selection and neighbor-preservation proof |
+
+This is an adoption design, not an applied consumer diff. Sharing reduces repeated server processes but introduces coordinated server maintenance and provisioning. Accept the downstream PR only after reviewing its actual removed/added responsibilities and exercising its existing developer commands. A smaller example file or lower synthetic RAM measurement alone does not establish net downstream simplification.
+
 ## A. Swap only the machine-wide gateway
 
 Follow [Docker installation](docker-installation.md) for the local draft build, image transfer, single-file Compose installation, native start/stop commands, and release prerequisites. Require Docker Engine and Compose **2.20.2 or newer**. The default image `ghcr.io/icefoganalytics/local-development-gateway/database-router:0.4.0` is prospective: build that tag locally for draft evaluation; do not assume a published registry image exists. `LOCAL_DEVELOPMENT_GATEWAY_IMAGE` selects an alternate image. The installed router needs no host Ruby library/configuration mounts or runtime source checkout.

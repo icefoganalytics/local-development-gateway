@@ -6,7 +6,7 @@ services:
       local-gateway: {}
     labels:
       local-gateway.tcp.driver: postgresql
-      local-gateway.tcp.hostname: postgres.example-${DB_SERVER_GROUP:?set DB_SERVER_GROUP}.localhost
+      local-gateway.tcp.hostname: postgres.${COMPOSE_PROJECT_NAME}.localhost
       local-gateway.tcp.port: '5432'
   sqlserver:
     networks:
@@ -14,7 +14,7 @@ services:
       local-gateway: {}
     labels:
       local-gateway.tcp.driver: sql_server
-      local-gateway.tcp.hostname: sqlserver.example-${DB_SERVER_GROUP:?set DB_SERVER_GROUP}.localhost
+      local-gateway.tcp.hostname: sqlserver.${COMPOSE_PROJECT_NAME}.localhost
       local-gateway.tcp.port: '1433'
 networks:
   local-gateway:

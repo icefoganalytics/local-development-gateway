@@ -1,4 +1,4 @@
--- Variables are supplied only after bin/dev validates its bounded checkout identity.
+-- Variables are supplied only after the provisioning service validates CHECKOUT_NAME.
 IF SUSER_ID(N'$(database)') IS NULL
     CREATE LOGIN [$(database)] WITH PASSWORD = '$(password)', CHECK_POLICY = OFF, CHECK_EXPIRATION = OFF;
 GO

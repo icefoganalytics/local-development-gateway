@@ -1,12 +1,12 @@
 x-application: &application
   build: ./app
-  environment:
-    DB_ENGINE: ${DB_ENGINE:?use bin/dev}
-    APP_HOST: ${APP_HOST:?use bin/dev}
-    DB_HOST: ${DB_HOST:?use bin/dev}
-    DB_NAME: ${DB_NAME:?use bin/dev}
-    DB_USER: ${DB_USER:?use bin/dev}
-    DB_PASSWORD: ${DB_PASSWORD:?use bin/dev}
+  environment: &development
+    DB_ENGINE: ${DB_ENGINE:-sqlserver}
+    APP_HOST: app-${CHECKOUT_NAME:?use bin/dev}
+    DB_HOST: ${DB_SERVER_PROJECT:-gateway-example-shared}-${DB_ENGINE:-sqlserver}
+    DB_NAME: app_${CHECKOUT_NAME:?use bin/dev}_development
+    DB_USER: app_${CHECKOUT_NAME:?use bin/dev}_development
+    DB_PASSWORD: Example-app_${CHECKOUT_NAME:?use bin/dev}_development-Only9!
   networks:
     - default
     - database
@@ -17,7 +17,7 @@ services:
     networks:
       default:
         aliases:
-          - ${APP_HOST:?use bin/dev}
+          - app-${CHECKOUT_NAME:?use bin/dev}
       database: {}
     healthcheck:
       test:
@@ -46,6 +46,11 @@ services:
     <<: *application
     profiles: [test]
     command: [npm, test]
+    environment:
+      <<: *development
+      DB_NAME: app_${CHECKOUT_NAME:?use bin/dev}_test
+      DB_USER: app_${CHECKOUT_NAME:?use bin/dev}_test
+      DB_PASSWORD: Example-app_${CHECKOUT_NAME:?use bin/dev}_test-Only9!
 
   lint:
     build: ./app
@@ -56,4 +61,4 @@ services:
 networks:
   database:
     external: true
-    name: ${DB_SERVER_NETWORK:?use bin/dev}
+    name: ${DB_SERVER_PROJECT:-gateway-example-shared}_default

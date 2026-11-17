@@ -4,302 +4,59 @@ require "digest"
 
 class Dev
   ROOT = File.realpath("..", __dir__)
-  ENVIRONMENTS = %w[development test].freeze
 
-  def initialize
-    @engine = ENV.fetch("DB_ENGINE", "sqlserver")
-    @group = ENV.fetch("DB_SERVER_GROUP", "shared")
-
-    unless %w[sqlserver postgres].include?(@engine)
-      abort "DB_ENGINE must be sqlserver or postgres"
+  def call(command = "--help", *args)
+    case command
+    when "up", "down", "run", "test", "lint", "migrate"
+      public_send(command, *args)
+    else
+      compose(command, *args)
     end
-
-    unless %w[shared alpha beta].include?(@group)
-      abort "DB_SERVER_GROUP must be shared, alpha or beta"
-    end
-
-    path_hash = Digest::SHA256.hexdigest(ROOT)[0, 12]
-    @identity = ENV.fetch("COMPOSE_PROJECT_NAME", "checkout_#{path_hash}")
-
-    unless /\A[a-z][a-z0-9_]{0,31}\z/.match?(@identity)
-      abort "COMPOSE_PROJECT_NAME must match [a-z][a-z0-9_]{0,31}; use a unique name per checkout"
-    end
-
-    @server_project = "gateway-example-#{@group}"
-    @host = "example-#{@group}-#{@engine}"
   end
 
-  def call(command = "help", *args)
-    case command
-    when "identity"
-      no_arguments!(args)
-      puts "checkout=#{@identity} engine=#{@engine} host=#{@host}"
-      ENVIRONMENTS.each do |environment|
-        puts "#{environment}=#{database(environment)}"
-      end
-    when "servers"
-      servers(*args)
-    when "provision"
-      no_arguments!(args)
-      provision
-    when "up"
-      no_arguments!(args)
-      compose("consumer.yml", @identity, "up", "-d", "--build", "--wait", "app")
-    when "migrate"
-      no_arguments!(args)
-      run_app("development", "migrate")
-    when "test"
-      no_arguments!(args)
-      compose(
-        "consumer.yml",
-        @identity,
-        "run",
-        "--rm",
-        "--build",
-        "--no-deps",
-        "-T",
-        "test_app",
-        environment: "test"
-      )
-    when "lint"
-      no_arguments!(args)
-      compose(
-        "consumer.yml",
-        @identity,
-        "run",
-        "--rm",
-        "--build",
-        "--no-deps",
-        "-T",
-        "lint"
-      )
-    when "query"
-      environment = args.shift
-      abort "Supply one SQL query" unless args.length == 1
+  def up(*args)
+    compose(*%w[up -d --build --wait], *args)
+  end
 
-      run_app(environment, "query", *args)
-    when "note"
-      abort "Supply one note text" unless args.length == 1
+  def down(*args)
+    compose("down", *args)
+  end
 
-      run_app("development", "note", *args)
-    when "down"
-      no_arguments!(args)
-      compose("consumer.yml", @identity, "down")
-    when "remove-data"
-      unless args == ["--remove-data"]
-        abort "Requires remove-data --remove-data (disconnect this checkout first)"
-      end
+  def run(*args)
+    compose(*%w[run --rm --build --no-deps -T], *args)
+  end
 
-      ENVIRONMENTS.each do |environment|
-        name = database(environment)
+  def test(*args)
+    run(*%w[test_app npm test], *args)
+  end
 
-        sql =
-          if @engine == "postgres"
-            "DROP DATABASE IF EXISTS \"#{name}\";"
-          else
-            "IF DB_ID(N'#{name}') IS NOT NULL DROP DATABASE [#{name}];"
-          end
+  def lint(*args)
+    run(*%w[lint npm run lint --], *args)
+  end
 
-        admin(input: sql)
-      end
-    else
-      abort <<~USAGE
-        Usage: bin/dev identity
-               bin/dev servers up|down|destroy --remove-all-data
-               bin/dev provision|up|migrate|test|lint|down
-               bin/dev query development|test SQL
-               bin/dev note TEXT
-               bin/dev remove-data --remove-data
-      USAGE
-    end
+  def migrate(*args)
+    run(*%w[app node app.mjs migrate], *args)
   end
 
   private
 
-  def no_arguments!(args)
-    abort "Unexpected arguments: #{args.join(" ")}" unless args.empty?
+  def compose(*args)
+    exec(dynamic_environment_variables, "docker", "compose", *args, chdir: ROOT)
   end
 
-  def database(environment)
-    unless ENVIRONMENTS.include?(environment)
-      abort "Environment must be development or test"
+  def dynamic_environment_variables
+    path_hash = Digest::SHA256.hexdigest(ROOT)[0, 12]
+    checkout = ENV.fetch("COMPOSE_PROJECT_NAME", "checkout_#{path_hash}")
+
+    unless /\A[a-z][a-z0-9_]{0,31}\z/.match?(checkout)
+      abort "COMPOSE_PROJECT_NAME must match [a-z][a-z0-9_]{0,31}; use a unique name per checkout"
     end
 
-    "app_#{@identity}_#{environment}"
-  end
-
-  def compose(file, project, *args, input: nil, environment: "development")
-    name = database(environment)
-    variables = {
-      "DB_SERVER_GROUP" => @group,
-      "DB_SERVER_NETWORK" => "#{@server_project}_default",
-      "APP_HOST" => "app-#{@identity}",
-      "DB_ENGINE" => @engine,
-      "DB_HOST" => @host,
-      "DB_NAME" => name,
-      "DB_USER" => name,
-      "DB_PASSWORD" => "Example-#{name}-Only9!"
+    {
+      "COMPOSE_FILE" => ENV.fetch("COMPOSE_FILE", "consumer.yml"),
+      "COMPOSE_PROJECT_NAME" => checkout,
+      "CHECKOUT_NAME" => checkout
     }
-
-    files = ENV.fetch("COMPOSE_FILE", file).split(File::PATH_SEPARATOR)
-    file_options =
-      files.flat_map do |path|
-        absolute_path = File.expand_path(path, ROOT)
-        ["-f", absolute_path]
-      end
-
-    command = [
-      "docker",
-      "compose",
-      "--project-directory",
-      ROOT,
-      "-p",
-      project,
-      *file_options,
-      *args
-    ]
-
-    if input
-      IO.popen([variables, *command], "w") { |stdin| stdin.write(input) }
-      abort "Docker Compose command failed" unless $?.success?
-    else
-      abort "Docker Compose command failed" unless system(variables, *command)
-    end
-  end
-
-  def servers(action = nil, *args)
-    case action
-    when "up"
-      no_arguments!(args)
-      compose(
-        "compose.yml",
-        @server_project,
-        "up",
-        "-d",
-        "--wait",
-        "--wait-timeout",
-        "240",
-        @engine
-      )
-    when "down"
-      no_arguments!(args)
-      compose("compose.yml", @server_project, "down")
-    when "destroy"
-      unless args == ["--remove-all-data"]
-        abort "Requires servers destroy --remove-all-data"
-      end
-
-      compose("compose.yml", @server_project, "down", "--volumes")
-    else
-      abort "Usage: bin/dev servers up|down|destroy --remove-all-data"
-    end
-  end
-
-  def admin(*args, input:)
-    client =
-      if @engine == "postgres"
-        [
-          "-e",
-          "PGPASSWORD=Example-Postgres-Admin9!",
-          @engine,
-          "psql",
-          "-X",
-          "-h",
-          @host,
-          "-U",
-          "example_admin",
-          "-d",
-          "postgres",
-          "-v",
-          "ON_ERROR_STOP=1"
-        ]
-      else
-        [
-          "-e",
-          "SQLCMDPASSWORD=Example-Sql-Admin9!",
-          @engine,
-          "/opt/mssql-tools18/bin/sqlcmd",
-          "-S",
-          @host,
-          "-U",
-          "sa",
-          "-d",
-          "master",
-          "-C",
-          "-b"
-        ]
-      end
-
-    compose(
-      "compose.yml",
-      @server_project,
-      "exec",
-      "-T",
-      *client,
-      *args,
-      input: input
-    )
-  end
-
-  def provision
-    # Project-owned bootstrap is separate from app startup and test initialization.
-    # Existing passwords are never reset; the restricted migration detects drift.
-    ENVIRONMENTS.each do |environment|
-      name = database(environment)
-      password = "Example-#{name}-Only9!"
-
-      if @engine == "postgres"
-        role_sql = File.read("#{ROOT}/postgres-role.sql")
-        database_sql = File.read("#{ROOT}/postgres-database.sql")
-
-        admin(
-          "-v",
-          "role=#{name}",
-          "-v",
-          "password=#{password}",
-          input: role_sql
-        )
-
-        admin("-v", "database=#{name}", input: database_sql)
-      else
-        login_sql = File.read("#{ROOT}/sqlserver-login.sql")
-        database_sql = File.read("#{ROOT}/sqlserver-database.sql")
-
-        admin(
-          "-v",
-          "database=#{name}",
-          "password=#{password}",
-          input: login_sql
-        )
-
-        admin("-v", "database=#{name}", input: database_sql)
-      end
-    end
-  end
-
-  def run_app(environment, *args)
-    database(environment)
-    service =
-      if environment == "test"
-        "test_app"
-      else
-        "app"
-      end
-
-    compose(
-      "consumer.yml",
-      @identity,
-      "run",
-      "--rm",
-      "--build",
-      "--no-deps",
-      "-T",
-      service,
-      "node",
-      "app.mjs",
-      *args,
-      environment: environment
-    )
   end
 end
 
