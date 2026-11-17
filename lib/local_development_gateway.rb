@@ -18,6 +18,7 @@ module LocalDevelopmentGateway
   end
 
   require "local_development_gateway/database_router"
+  require "local_development_gateway/lifecycle"
 
   class DockerError < Error
     attr_reader :command, :output
@@ -49,28 +50,26 @@ module LocalDevelopmentGateway
 
   class Client
     CONTAINER_FORMAT =
-      "{{.ID}}\t{{.Label \"com.docker.compose.project\"}}\t{{.Label \"com.docker.compose.service\"}}\t{{.Label \"local-gateway\"}}"
+      "{{.ID}}\t{{.Label \"com.docker.compose.project\"}}\t{{.Label \"com.docker.compose.service\"}}\t{{.Label \"local-gateway\"}}\t{{.Label \"local-gateway.lifecycle\"}}"
 
     def initialize(
       runner: Docker.new,
       timeout: 30,
       poll_interval: 0.25,
       sleeper: ->(seconds) { sleep seconds },
-      clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
+      clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) },
+      lifecycle: nil
     )
       @runner = runner
       @timeout = timeout
       @poll_interval = poll_interval
       @sleeper = sleeper
       @clock = clock
+      @lifecycle = lifecycle || Lifecycle.new(runner: runner)
     end
 
     def ensure_running(*compose_args)
-      return :reused if compose_args.empty? && ready?
-
-      compose("up", "-d", "--remove-orphans", *compose_args)
-      wait_until_ready
-      :started
+      @lifecycle.synchronize { ensure_running_locked(*compose_args) }
     end
 
     alias start ensure_running
@@ -104,22 +103,44 @@ module LocalDevelopmentGateway
     end
 
     def stop_if_unused
-      return :not_running unless gateway_exists?
-      return :in_use if non_gateway_containers_attached?
+      @lifecycle.synchronize { |directory| stop_if_unused_locked(directory) }
+    end
 
-      compose("down", "--remove-orphans")
-      :stopped
+    def hold(name)
+      @lifecycle.validate_name(name)
+      @lifecycle.synchronize do |directory|
+        ensure_running_locked
+        @lifecycle.hold(directory, name)
+      end
+    end
+
+    def release(name)
+      @lifecycle.validate_name(name)
+      @lifecycle.synchronize do |directory|
+        @lifecycle.release(directory, name)
+        stop_if_unused_locked(directory)
+      end
     end
 
     def with_running(ensure_running: true)
+      operation = nil
       begin
-        self.ensure_running if ensure_running
+        @lifecycle.synchronize do |directory|
+          operation = @lifecycle.register_operation(directory)
+          ensure_running_locked if ensure_running
+        end
         yield
       ensure
         block_error = $!
         begin
-          stop_if_unused
+          if operation
+            @lifecycle.synchronize do |directory|
+              @lifecycle.release_operation(operation)
+              stop_if_unused_locked(directory)
+            end
+          end
         rescue StandardError => cleanup_error
+          operation.close if operation && !operation.closed?
           raise cleanup_error unless block_error
         end
       end
@@ -138,6 +159,36 @@ module LocalDevelopmentGateway
     end
 
     private
+
+    def ensure_running_locked(*compose_args)
+      return :reused if compose_args.empty? && ready?
+
+      compose("up", "-d", "--remove-orphans", *compose_args)
+      wait_until_ready
+      :started
+    end
+
+    def stop_if_unused_locked(directory)
+      return :in_use if @lifecycle.retained?(directory)
+      return :not_running unless gateway_exists?
+      if non_gateway_containers_attached? || explicit_consumers_running?
+        return :in_use
+      end
+
+      compose("stop")
+      :stopped
+    end
+
+    def explicit_consumers_running?
+      output =
+        @runner.call(
+          "ps",
+          "--filter",
+          "label=local-gateway.lifecycle=consumer",
+          "--quiet"
+        )
+      !output.strip.empty?
+    end
 
     def service_version_status(service, id)
       container = JSON.parse(@runner.call("inspect", id)).fetch(0)
@@ -222,7 +273,7 @@ module LocalDevelopmentGateway
     def gateway_exists?
       network_exists? &&
         SERVICE_NAMES.any? do |service|
-          !gateway_container_ids(service: service).empty?
+          !gateway_container_ids(service: service, status: "running").empty?
         end
     end
 
@@ -273,15 +324,23 @@ module LocalDevelopmentGateway
           CONTAINER_FORMAT
         )
       output.lines.filter_map do |line|
-        id, project, service, label = line.strip.split("\t", -1)
+        id, project, service, label, lifecycle = line.chomp.split("\t", -1)
         next if id.nil? || id.empty?
 
-        { id: id, project: project, service: service, label: label }
+        {
+          id: id,
+          project: project,
+          service: service,
+          label: label,
+          lifecycle: lifecycle
+        }
       end
     end
 
     def non_gateway_containers_attached?
-      attached_containers.any? { |container| !gateway_container?(container) }
+      attached_containers.any? do |container|
+        !gateway_container?(container) && container[:lifecycle] != "passive"
+      end
     end
 
     def gateway_container?(container)
@@ -292,6 +351,15 @@ module LocalDevelopmentGateway
   end
 
   class CLI
+    class CommandFailure < StandardError
+      attr_reader :status
+
+      def initialize(status)
+        @status = status
+        super("Project command exited with status #{status}")
+      end
+    end
+
     USAGE = <<~USAGE
       Usage: local-development-gateway COMMAND [OPTIONS]
 
@@ -301,6 +369,10 @@ module LocalDevelopmentGateway
         ready       Check gateway readiness
         logs        Follow gateway logs
         down, stop  Stop the gateway only when unused
+        with-running [--no-start] -- COMMAND
+                    Run a project command with automatic gateway lifecycle
+        hold NAME   Start the gateway and retain it for a desktop client
+        release NAME Remove a desktop hold and stop the gateway if unused
 
       Other commands are passed to Docker Compose using the packaged assets.
     USAGE
@@ -323,7 +395,7 @@ module LocalDevelopmentGateway
       end
 
       case command
-      when "up", "ensure"
+      when "up", "ensure", "start"
         result = @client.ensure_running(*@argv)
         @output.write(@client.status) if result == :reused
       when "status"
@@ -337,16 +409,51 @@ module LocalDevelopmentGateway
         @client.logs(*@argv, follow: true)
       when "down", "stop"
         report_stop(@client.stop_if_unused)
+      when "hold", "release"
+        unless @argv.length == 1
+          raise Error, "#{command} requires exactly one NAME"
+        end
+
+        result = @client.public_send(command, @argv.first)
+        report_stop(result) if command == "release"
+      when "with-running"
+        return run_with_gateway
       else
         @output.write(@client.compose(command, *@argv))
       end
       0
+    rescue CommandFailure => error
+      error.status
     rescue Error => error
       @error.puts error.message
       1
     end
 
     private
+
+    def run_with_gateway
+      start = @argv.first != "--no-start"
+      @argv.shift unless start
+      unless @argv.shift == "--" && !@argv.empty?
+        raise Error,
+              "Usage: local-development-gateway with-running [--no-start] -- COMMAND"
+      end
+
+      @client.with_running(ensure_running: start) do
+        status =
+          begin
+            system([@argv.first, @argv.first], *@argv.drop(1))
+            child = $?
+            child ? (child.exitstatus || (128 + child.termsig)) : 127
+          rescue SystemCallError => error
+            @error.puts error.message
+            127
+          end
+        raise CommandFailure, status unless status.zero?
+
+        status
+      end
+    end
 
     def print_usage(status)
       @output.write(USAGE)
@@ -357,7 +464,7 @@ module LocalDevelopmentGateway
       messages = {
         not_running: "Local Development Gateway is not running",
         in_use:
-          "Leaving Local Development Gateway running because another container is attached",
+          "Leaving Local Development Gateway running because a consumer, pending operation or desktop hold needs it",
         stopped: "Stopped Local Development Gateway"
       }
       @output.puts messages.fetch(result)
@@ -391,6 +498,14 @@ module LocalDevelopmentGateway
 
     def stop_if_unused
       Client.new.stop_if_unused
+    end
+
+    def hold(name)
+      Client.new.hold(name)
+    end
+
+    def release(name)
+      Client.new.release(name)
     end
   end
 end

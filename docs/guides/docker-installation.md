@@ -52,7 +52,7 @@ Each service checks health every second during its initial ten-second startup pe
 
 ## Stop and Upgrade Deliberately
 
-The native `docker compose down` command has **no unused-gateway guard**. Unlike the optional Ruby lifecycle API, it must not be invoked by consumer checkout shutdown hooks. Leave this small shared pair running while any participating project needs it.
+The native `docker compose stop` and `down` commands have **no unused-gateway guard**. Do not invoke them from consumer checkout shutdown hooks. Integrate the coordinated [Ruby lifecycle API](#optional-ruby-integration) in the existing wrapper: the first `bin/dev up` starts the gateway, another reuses it, and the last `bin/dev down` stops the routers. Automatic shutdown preserves the gateway network and containers so passive shared databases remain attached. It never stops those databases or removes their volumes.
 
 Before a machine-wide shutdown, inspect running **and stopped** attached containers and identify their owners:
 
@@ -62,11 +62,9 @@ docker ps -a --filter network=local-gateway \
 docker network inspect local-gateway
 ```
 
-Stop/tear down participating application and shared-database projects through their own documented commands first. Only after confirming no consumer needs the gateway:
+For ordinary shutdown, use the candidate's `local-development-gateway down`, which refuses to stop while a consumer, pending operation, or named hold remains. Unknown legacy containers remain blockers. A shared database may be explicitly labeled `local-gateway.lifecycle: passive`; pair that with active consumer labels on app/job/test services, even when they only use a project's private network. The four [consumer examples](consumer-developer-examples.md) show this boundary.
 
-```sh
-docker compose -p local-gateway -f docker-compose.yml down
-```
+For explicit machine-wide **uninstallation**, first coordinate with all owners and detach their containers from the gateway network. Only then run `docker compose -p local-gateway -f docker-compose.yml down`. Normal project teardown is not uninstallation.
 
 Do not delete consumer database volumes or prune Docker networks to upgrade the gateway. For a router-only update, agree on downtime, obtain/build the selected image, and explicitly recreate only that service:
 
@@ -78,9 +76,13 @@ Existing database sessions will disconnect. Verify the process version/image ide
 
 ## Optional Ruby Integration
 
-The candidate gem still provides `with_running`, `ensure_running`, `ready?`, `status`, `logs`, `stop_if_unused`, and deterministic private alias generation. It now carries an image-based Compose file, not a runtime source/config mount. `status` reports the active version, requested image, immutable running image ID, and legacy mounted assets when present.
+The candidate gem provides `with_running`, `ensure_running`, `ready?`, `status`, `logs`, `stop_if_unused`, named `hold`/`release` operations, and deterministic private alias generation. It carries an image-based Compose file, not a runtime source/config mount. `status` reports the active version, requested image, immutable running image ID, and legacy mounted assets when present.
 
-For candidate evaluation, consumers may point their local bundle at this branch; do not commit personal checkout paths. For normal adoption, wait for the coordinated image/gem release. Existing bundles pinned to 0.2.2 must not remain responsible for recreating the shared gateway after cutover: update their gem or remove those gateway lifecycle hooks in favor of the explicit Docker-only installation. See [the three consumer migration instructions](docker-first-migration.md).
+For candidate evaluation, consumers may point their local bundle at this branch; do not commit personal checkout paths. For normal adoption, wait for the coordinated image/gem release. Update every cooperating consumer's old gem and retain its existing lifecycle hooks using the candidate contract. An old client can still recreate the legacy installation and bypass coordination. See [lifecycle ownership](../architecture/gateway-lifecycle.md) and [the four consumer examples](consumer-developer-examples.md).
+
+The routers remain Docker-only. Automatic project lifecycle uses the existing host Ruby wrapper, not a new native service. A machine with only Docker can run the stack explicitly with Compose, but raw Compose commands do not participate in the unused-gateway guard. Docker Engine/Desktop must already be running; Windows/macOS behavior and filesystem locking still require native verification.
+
+For DBeaver without an app checkout, run `local-development-gateway hold dbeaver`, then release it with `local-development-gateway release dbeaver`. Holds are durable names, not reference counts: use a distinct name for independently managed sessions. Release triggers guarded cleanup. A stopped gateway does not wake on a browser or database connection.
 
 A custom image can be selected with `LOCAL_DEVELOPMENT_GATEWAY_IMAGE`, including a registry digest reference. This does not change the gateway's Compose project, loopback ports, network name, or protocol labels. The router process record reports its actual library version even if an operator supplies an older image.
 

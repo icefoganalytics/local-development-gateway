@@ -5,6 +5,7 @@ services:
       default: {}
       local-gateway: {}
     labels:
+      local-gateway.lifecycle: passive
       local-gateway.tcp.driver: postgresql
       local-gateway.tcp.hostname: postgres.${COMPOSE_PROJECT_NAME}.localhost
       local-gateway.tcp.port: '5432'
@@ -13,6 +14,7 @@ services:
       default: {}
       local-gateway: {}
     labels:
+      local-gateway.lifecycle: passive
       local-gateway.tcp.driver: sql_server
       local-gateway.tcp.hostname: sqlserver.${COMPOSE_PROJECT_NAME}.localhost
       local-gateway.tcp.port: '1433'

@@ -1,13 +1,13 @@
 # Docker-first gateway and project-local database migration
 
-This guide is for the owner migrating WRAP, ELCC Data Management, or Travel Authorization development worktrees. It describes proposed consumer changes, not completed adoption. No consumer compatibility, data restore, network recovery, or RAM saving is established by reading its source. Keep production Compose and externally managed production databases outside this migration.
+This guide is for the owner migrating WRAP, ELCC Data Management, Travel Authorization, or Traditional Knowledge development worktrees. It describes proposed consumer changes, not completed adoption. Start with the [four developer UX examples](consumer-developer-examples.md) for the current source-backed command and configuration contracts, including Traditional Knowledge. No consumer compatibility, data restore, network recovery, or RAM saving is established by reading source. Keep production Compose and externally managed production databases outside this migration.
 
 There are two independent cutovers:
 
 1. **Gateway packaging:** replace the machine-wide gateway installation with the self-contained Docker router image. Database ownership and checkout data do not change. Packaging alone does not materially reduce RAM.
 2. **Project-local database pooling:** replace repeated database server processes across a project's worktrees with project-owned shared servers. Each checkout retains separate development and test databases and restricted credentials. This is the source of potential RAM reduction; measure it before acceptance.
 
-Never share a database engine between WRAP, ELCC, and Travel Authorization. A project server restart or resource limit affects every worktree using it. Application, cache, mail, search, and default-network isolation remain checkout concerns.
+Never share a database engine between projects. A project server restart or resource limit affects every worktree using it. Application, cache, mail, search, and default-network isolation remain checkout concerns.
 
 ## Source baseline and adoption status
 
@@ -30,7 +30,7 @@ For an ELCC-shaped adoption, the intended responsibility delta is:
 | Existing owner | Consumer change | Remaining responsibility |
 | --- | --- | --- |
 | `bin/dev` command methods and Compose delegation | Retain; do not add engine/group dispatch or database deletion commands | Normal application workflow |
-| Gateway calls around `up`, `down`, and `run` | Apply section A's independently managed gateway choice; preserve editor-bridge hooks | Machine gateway managed once |
+| Gateway calls around `up`, `down`, and `run` | Update to the coordinated lifecycle contract; preserve editor-bridge hooks | First-use startup and last-consumer shutdown |
 | Checkout `db` service and dependencies on it | Replace with a project-server connection and external network | Project owner starts and maintains the server |
 | Administrator-powered application database creation | Remove after explicit database/login provisioning is established | One project-owned provisioning operation per checkout |
 | Application migrations and test setup | Retain against separate restricted development/test connections | Consumer owns schema and test cleanup |
@@ -42,14 +42,15 @@ This is an adoption design, not an applied consumer diff. Sharing reduces repeat
 
 Follow [Docker installation](docker-installation.md) for the local draft build, image transfer, single-file Compose installation, native start/stop commands, and release prerequisites. Require Docker Engine and Compose **2.20.2 or newer**. The default image `ghcr.io/icefoganalytics/local-development-gateway/database-router:0.4.0` is prospective: build that tag locally for draft evaluation; do not assume a published registry image exists. `LOCAL_DEVELOPMENT_GATEWAY_IMAGE` selects an alternate image. The installed router needs no host Ruby library/configuration mounts or runtime source checkout.
 
-Inventory the previous installation's Compose project, containers, image/version labels, port bindings, network ownership, lifecycle caller, and saved Compose file. Save its configuration and image references for rollback. Do not start a second pair on occupied loopback ports 80, 1433, and 5432. Replacing the running machine-wide pair requires an approved maintenance window; this draft does not authorize that restart. Preserve `local-gateway` while consumers are attached and leave database volumes alone.
+Inventory the previous installation's Compose project, containers, image/version labels, port bindings, network ownership, lifecycle caller, and saved Compose file. Save its configuration and image references for rollback. Do not start a second pair on occupied loopback ports 80, 1433, and 5432. Replacing the running machine-wide pair requires coordinated downtime; authorization alone is not evidence that active consumers can tolerate interruption. Preserve `local-gateway` while consumers are attached and leave database volumes alone.
 
-Choose **one** gateway lifecycle owner before updating consumers. All three inspected consumer bundles still select gateway gem **0.2.2**. Leaving their existing `LocalDevelopmentGateway.with_running` hooks unchanged is not safe adoption: when no ready gateway exists, the older gem can recreate its bundled bind-mounted installation. Choose either:
+Use **one coordinated lifecycle contract** in every cooperating wrapper. The historical consumer baselines below select gateway gem **0.2.2**. Leaving their existing hooks on that gem is not safe adoption: when no ready gateway exists, it can recreate its bundled bind-mounted installation and bypass the candidate's synchronization.
 
-- Retain the optional Ruby API and update the consumer's Gemfile/lock owner to the candidate implementation (a local source path for isolated draft verification; released 0.4.0 only after publication is established). Verify reuse and `ensure_running: false` teardown against that candidate, including when the gateway starts absent.
-- Keep gateway lifecycle explicitly machine-owned through the installation Compose file, removing the consumer `with_running` hooks and unused gateway gem dependency. Keep ordinary checkout Compose and editor-bridge commands in their current wrapper. A checkout starts/stops its apps, not the machine gateway.
+Update each consumer's existing Gemfile/lock owner to the candidate implementation for isolated evaluation, or the matching released gem after publication is established. Retain `LocalDevelopmentGateway.with_running` around a waiting `up` command and use `with_running(ensure_running: false)` around waiting `down`/`stop` commands. Preserve editor-bridge nesting and command dispatch. Do not `exec` out of the block. Long-running commands retain a pending-operation lock without serializing other checkouts' commands.
 
-Do not add a second manager or a gateway start command around retained hooks. Consumer `bin/dev` wrappers still need Ruby for other duties; Docker-only gateway installation does not make those apps' wrappers Ruby-free. Existing aliases from gem 0.2.2 are not proof of the candidate's alias derivation: validate host resolution and each selected route explicitly.
+Label shared database containers `local-gateway.lifecycle: passive`, and label active app/job/test services `local-gateway.lifecycle: consumer`, including services on private networks only. Unknown attached containers keep the gateway alive. After the final consumer disappears, guarded cleanup stops only the routers and preserves their network, idle databases, and data. For desktop-only access use a named hold. See [lifecycle ownership](../architecture/gateway-lifecycle.md).
+
+Do not add a second manager around retained hooks or remove automatic startup from the normal developer path. Consumer wrappers still need Ruby for other duties; Docker-only router installation does not make those wrappers Ruby-free. Explicit native Compose operation remains available for machine owners, but bypasses the guard. Existing aliases from gem 0.2.2 are not proof of the candidate's alias derivation: validate host resolution and each selected route explicitly.
 
 Before accepting the gateway swap, verify image/version labels, health, HTTP routes, SQL Server/PostgreSQL client connections, and existing TLS/cancellation behavior with disposable clients. Preserve the established loopback ports and network/labels. TCP health alone is not protocol evidence.
 
@@ -149,6 +150,8 @@ Restore the checkout's old development Compose/service/dependency and gateway-ov
 ## Desktop database clients after pooling
 
 Select the **project shared-server hostname plus explicit checkout database**, not a per-checkout container hostname. SQL Server clients use the gateway's existing loopback port 1433; PostgreSQL clients use 5432. Use the appropriate project's scoped login, and set the database explicitly in every saved connection. A hostname chooses the server process, not the database or authorization boundary. For Travel, retain separate shared-server hostnames for PostgreSQL, TravCom SQL Server, and Travelport SQL Server. Retire obsolete checkout database routes only after saved clients and scripts are migrated; never keep duplicate containers claiming a hostname as a transition strategy.
+
+Before the last app stops, acquire a named hold with `local-development-gateway hold dbeaver`; release it with `local-development-gateway release dbeaver` after closing desktop connections. Passive database servers do not keep routers running by themselves. A live DBeaver TCP connection is not an implicit lifecycle registration.
 
 ## Network exhaustion and ownership-aware cleanup (#41)
 

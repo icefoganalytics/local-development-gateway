@@ -136,7 +136,9 @@ After stopping **all** checkout apps, `docker compose -p gateway-example-shared 
 
 ## Optional routing and measurement
 
-If the gateway and external `local-gateway` network already exist, the project owner may add `-f gateway.yml` to server startup. Desktop hostnames are `sqlserver.gateway-example-shared.localhost` and `postgres.gateway-example-shared.localhost`. Routing selects a server, not a logical database; this never starts or restarts the gateway.
+If the gateway and external `local-gateway` network already exist, the project owner may add `-f gateway.yml` to server startup. Desktop hostnames are `sqlserver.gateway-example-shared.localhost` and `postgres.gateway-example-shared.localhost`. Routing selects a server, not a logical database. This overlay labels the servers as passive: they do not keep the candidate gateway running after its final consumer stops. Acquire a named hold with `local-development-gateway hold dbeaver` for desktop-only use and release it afterward with `local-development-gateway release dbeaver`.
+
+This database-focused example remains usable without a gateway. For automatic project `up`/last-`down` gateway lifecycle, apply the small existing-wrapper integrations in the [four consumer developer examples](../../docs/guides/consumer-developer-examples.md), including their active app/job/test labels. Do not label active apps passive.
 
 For a separate-server comparison, use ordinary Compose `-p` to create an independent server project per checkout and set `DB_SERVER_PROJECT` on the corresponding application's commands. No benchmark mode exists in `bin/dev`. Compare identical images, databases, data, workload, and sampling intervals, running only one topology during measurement. The historical 48.2% synthetic idle RAM saving is not evidence of application adoption, capacity, or lower maintenance burden. Server restarts and contention now affect all project checkouts; sharing does not fix network exhaustion (#41).
 

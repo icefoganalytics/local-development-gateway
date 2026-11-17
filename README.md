@@ -25,6 +25,8 @@ The checkout folder identifies the project. A separately named worktree such as 
 These local `*.localhost` hostnames resolve to loopback and do not require a
 public domain, external DNS provider, or internet-facing listener.
 
+The [knowledge base](docs/README.md) connects the [core requirements](docs/requirements/effective-gateway.md), lifecycle ownership, and concrete developer examples for ELCC, WRAP, Travel Authorization, and Traditional Knowledge.
+
 ## Start once per day
 
 For the published 0.3.x gem, use the small repository wrapper for the common lifecycle commands. For this branch's Docker-only candidate, follow [Docker-only installation](docs/guides/docker-installation.md), which covers building the unpublished image, installing from one Compose file, and coordinated upgrade/rollback.
