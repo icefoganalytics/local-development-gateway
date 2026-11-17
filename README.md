@@ -380,7 +380,7 @@ rake test
 
 Each participating project installs the published gem through its existing dependency and development-wrapper workflow. Its wrapper can start or reuse the shared gateway before starting application services. A primary checkout can use `http://example.localhost`, while a separate worktree uses `http://issue-123.example.localhost`. Routed API or mail services can use corresponding `api.` or `mail.` prefixes when the consumer supplies those labels.
 
-Application shutdown stops that checkout's services. A wrapper using the gateway lifecycle helper removes the shared gateway only when no other running consumer needs it. Hostname derivation and application lifecycle commands remain consumer responsibilities; the gem does not prescribe a particular application wrapper or rewrite its settings.
+Application shutdown stops that checkout's services. The coordinated lifecycle helper stops the shared routers only when no active consumer, pending operation, or desktop hold needs them; it preserves the shared network and database data. See [lifecycle ownership](docs/architecture/gateway-lifecycle.md) for adoption and coordination boundaries. Hostname derivation and application lifecycle commands remain consumer responsibilities; the gem does not prescribe a particular application wrapper or rewrite its settings.
 
 The gateway owns the single browser port on `127.0.0.1:80`. Participating projects keep service ports internal to Docker and route browser traffic with explicit Traefik labels.
 
