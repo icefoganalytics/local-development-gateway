@@ -5,6 +5,22 @@
         "tool": "rubocop",
         "command": ["bundle", "exec", "rubocop", "--lint", "--format", "simple"],
         "appendPaths": true
+      },
+      "shell": {
+        "tool": "shellcheck",
+        "command": [
+          "docker",
+          "run",
+          "--rm",
+          "--network",
+          "none",
+          "--mount",
+          "type=bind,source=.,target=/work,readonly",
+          "--workdir",
+          "/work",
+          "koalaman/shellcheck:v0.11.0"
+        ],
+        "appendPaths": true
       }
     }
   }
