@@ -362,8 +362,10 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   lib/local_development_gateway/database_router/tds/*.rb \
   lib/local_development_gateway/version.rb \
   bin/dev \
+  bin/database-router \
   bin/local-development-gateway \
   examples/database-aliases/compose.rb \
+  examples/shared-databases/bin/dev \
   test/*.rb \
   test/database_router/*.rb \
   test/database_router/drivers/*.rb \

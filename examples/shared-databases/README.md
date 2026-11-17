@@ -1,197 +1,142 @@
-# Project-local shared database servers
+# Consumer-owned shared database example
 
-This **disposable, synthetic development example** runs one PostgreSQL 17 server
-and one SQL Server 2022 Developer server for one project. Two checkout identities,
-`alpha` and `beta`, each get separate `development` and `test` databases **and
-credentials** on each server. There are no checkout-specific engine containers,
-no published host ports, and no requirement for Ruby, host database clients, or a
-running gateway. Docker with the Compose plugin and a POSIX shell are required.
-SQL Server requires a supported Docker host architecture and enough available RAM.
-Starting it accepts Microsoft's container EULA; Developer is not a production license.
+This runnable **synthetic consumer**, not a migrated product, demonstrates one project-owned SQL Server 2022 server with independent application checkouts. PostgreSQL 17 is a selectable counterpart using the same application. The tiny Node application actually serves and persists notes; it has a Knex migration, restricted database connections, and a built-in Node test runner. No frontend, host database client, gateway, or gateway Ruby installation is needed.
 
-The network, engine containers, and named volumes belong to this example project,
-not a checkout. Real projects must each own their own server pair, network, volume
-names, and aliases; never use this example as a cross-project database service.
-The checked-in passwords are deliberately public dev-only examples, not secrets or
-consumer configuration. Anyone with Docker access can obtain administrator access.
-This protects normal checkout connections, not hostile Docker administrators.
+## Prerequisites and ownership
 
-## Initialize and connect
+- Docker Engine with Compose v2 (`up --wait` and `run --build` support), internet
+  access for images/npm, and Ruby 2.7+ for this **consumer-side** `bin/dev`.
+- SQL Server needs a supported host architecture and sufficient RAM. Starting
+  it accepts Microsoft's EULA; Developer is not a production license.
+- Run only against this disposable example's resources, never consumer data.
+  Passwords are deliberately public development examples. Docker administrators
+  can obtain server administrator access; this is checkout isolation, not a
+  hostile-administrator security boundary.
 
-From this directory:
+The project owner runs `bin/dev servers up` and `bin/dev provision`. Provisioning creates databases/logins, not application tables. Application `up` applies the versioned `app/migrations/001_notes.cjs` using its **development login**, then starts a real HTTP service. Tests apply that same migration with the **test login**, delete only test notes before each test, and verify persistence and test-to-development denial. The application never falls back to `sa`, never creates databases, and never gets administrator environment variables.
 
-```sh
-./database shared up
-./database shared init alpha
-./database shared init beta
+`bin/dev` follows the consumer pattern of a Ruby Compose launcher, checkout-based Compose project naming, app initialization, and separate test initialization. It intentionally does not reproduce ELCC's product, framework, or legacy administrator-powered database-creation initializer. The gateway owns routing and its own lifecycle only; database sharing and application setup remain here.
 
-./database shared psql alpha development -c 'SELECT current_database(), current_user;'
-./database shared psql alpha test -c 'SELECT current_database(), current_user;'
-./database shared psql beta development -c 'SELECT current_database(), current_user;'
-./database shared psql beta test -c 'SELECT current_database(), current_user;'
-./database shared sqlcmd alpha development -Q 'SELECT DB_NAME(), ORIGINAL_LOGIN();'
-./database shared sqlcmd alpha test -Q 'SELECT DB_NAME(), ORIGINAL_LOGIN();'
-./database shared sqlcmd beta development -Q 'SELECT DB_NAME(), ORIGINAL_LOGIN();'
-./database shared sqlcmd beta test -Q 'SELECT DB_NAME(), ORIGINAL_LOGIN();'
-```
+## Two real checkout folders
 
-`up` waits for authenticated SQL Server readiness and PostgreSQL connection
-readiness; provisioning and authenticated client calls must also succeed.
-The small `database` shell script invokes native `psql` and `sqlcmd` in the
-existing server containers, using their qualified private-network aliases.
-Arguments after the checkout/environment are passed directly to those clients;
-these are trusted operator commands, not a sandboxed query API.
-
-| Engine | Private hostname | Port |
-| --- | --- | --- |
-| PostgreSQL | `example-shared-postgres` | 5432 |
-| SQL Server | `example-shared-sqlserver` | 1433 |
-
-For both engines, the database and login names are `alpha_development`,
-`alpha_test`, `beta_development`, and `beta_test`. Each password is
-`Example-<database>-Only9!`, for example `Example-alpha_test-Only9!`.
-Apps on this private network use these hosts, explicit database names, and the
-corresponding **non-admin** login, never `sa` or `example_admin`.
-The Compose project is `gateway-example-shared`; its default network is
-`gateway-example-shared_default`. Attach app services to that existing network
-rather than launching a database engine in each checkout.
-
-Provisioning is repeatable: it creates missing databases/logins, does not drop
-existing data, and never changes an existing password. A manually changed
-password causes the final authenticated client check to fail; resolve it
-explicitly rather than resetting a volume. Unexpected PostgreSQL ownership or
-privileged role attributes/memberships, and SQL Server server-role memberships,
-are rejected. The scripts restore the documented database access restrictions.
-Use only the allowlisted `alpha`/`beta` identities and `development`/`test`
-environments. Do not point these scripts at existing consumer databases.
-
-PostgreSQL roles have no superuser, CREATEDB, CREATEROLE, replication, bypass-RLS,
-or inherited role membership. Database ownership is per environment; `PUBLIC`
-CONNECT/TEMPORARY is revoked and other example identities' grants removed.
-SQL logins have no server-role membership. Database owners are `sa`, never app
-logins; checkout users get `db_owner` only in their own environment database.
-Guest CONNECT, TRUSTWORTHY, and cross-database ownership chaining are disabled;
-other example logins have explicit CONNECT denials in each checkout database.
-System databases are not checkout databases; do not treat these disposable
-settings as production hardening. Server-level configuration or administrator
-permission changes outside the example require a new security review.
-
-## Prove cross-checkout and development/test denial
-
-First run the successful commands above. Each following command must exit
-nonzero with a **database access denial**, not a missing container, login failure,
-syntax error, or network failure. The PostgreSQL `-d` explicitly selects the
-other database; the SQL command attempts a cross-database `USE` from a valid
-initial connection. Repeat for the other environment/direction if adapting this
-example.
+From this example directory, create two disposable copies (or use two actual consumer Git worktrees after adapting the files):
 
 ```sh
-./database shared psql alpha development -d beta_development -c 'SELECT current_database();'
-./database shared psql beta development -d alpha_development -c 'SELECT current_database();'
-./database shared psql alpha test -d alpha_development -c 'SELECT current_database();'
-./database shared psql beta test -d beta_development -c 'SELECT current_database();'
-./database shared sqlcmd alpha development -Q 'USE [beta_development]; SELECT DB_NAME();'
-./database shared sqlcmd beta development -Q 'USE [alpha_development]; SELECT DB_NAME();'
-./database shared sqlcmd alpha test -Q 'USE [alpha_development]; SELECT DB_NAME();'
-./database shared sqlcmd beta test -Q 'USE [beta_development]; SELECT DB_NAME();'
+example=$PWD
+checkouts=$(mktemp -d)
+cp -R "$example" "$checkouts/alpha"
+cp -R "$example" "$checkouts/beta"
+alpha="$checkouts/alpha/bin/dev"
+beta="$checkouts/beta/bin/dev"
+
+# Project-owner action, once per server group; SQL Server is the default.
+"$alpha" servers up
+
+# Explicit existing-style Compose names make the QA database names predictable.
+COMPOSE_PROJECT_NAME=alpha "$alpha" provision
+COMPOSE_PROJECT_NAME=beta "$beta" provision
+# Reconcile explicit DENY entries now that both checkouts' logins exist.
+COMPOSE_PROJECT_NAME=alpha "$alpha" provision
+
+COMPOSE_PROJECT_NAME=alpha "$alpha" identity
+COMPOSE_PROJECT_NAME=alpha "$alpha" up
+COMPOSE_PROJECT_NAME=beta "$beta" up
+COMPOSE_PROJECT_NAME=alpha "$alpha" note alpha-marker
+COMPOSE_PROJECT_NAME=beta "$beta" note beta-marker
+COMPOSE_PROJECT_NAME=alpha "$alpha" test
+COMPOSE_PROJECT_NAME=beta "$beta" test
+COMPOSE_PROJECT_NAME=alpha "$alpha" query development 'SELECT * FROM notes'
+COMPOSE_PROJECT_NAME=beta "$beta" query development 'SELECT * FROM notes'
+COMPOSE_PROJECT_NAME=alpha "$alpha" query test 'SELECT * FROM notes'
 ```
 
-## Checkout cleanup versus project shutdown
+Expected: each development database contains only its own marker; test notes are empty after the suite. `note` POSTs through the live HTTP process, not directly to SQL. `query` uses the application's Knex driver and selected restricted credentials; SQL is trusted operator input, not a query API. No ports are published. App HTTP aliases are checkout-qualified on each checkout's own network, avoiding ambiguous `app` names on the shared network.
 
-There is no checkout engine to stop. Normal checkout `down` should stop only its
-application services and leave this project-owned server Compose project alone.
-Removing a checkout's data is an explicit, destructive opt-in:
+Without an explicit `COMPOSE_PROJECT_NAME`, identity is `checkout_<12 hexadecimal SHA256 characters of the canonical checkout path>`. Two same-named folders at different paths therefore do not collapse into one checkout. An explicit name must match `[a-z][a-z0-9_]{0,31}` exactly: no lossy normalization or SQL metacharacters. Names are project-scoped; never deliberately reuse an explicit name for independent checkouts. Moving a default-named checkout selects a new identity; retain an explicit name if persistence across moves matters.
+
+Databases and logins are `app_<identity>_development` and `app_<identity>_test`, with passwords `Example-<database>-Only9!`. The fixed `app_` namespace separates example identities from server accounts. Provisioning is repeatable, retains data/passwords, rejects unexpected elevated PostgreSQL roles or SQL Server server-role/grant membership, and restores access restrictions. A changed password fails application authentication rather than silently resetting data.
+
+## Executable isolation and lifecycle QA
+
+Run the successful startup, HTTP writes, and tests above first. SQL Server cross-database commands below must fail specifically with database access denial (for example SQL Server 916), not syntax, login, network, or missing-server errors. Repeat after re-provisioning to cover idempotence.
 
 ```sh
-# Optional: create beta markers before removing alpha.
-./database shared psql beta development -c 'CREATE TABLE IF NOT EXISTS cleanup_marker (id integer PRIMARY KEY); INSERT INTO cleanup_marker VALUES (42) ON CONFLICT DO NOTHING;'
-./database shared sqlcmd beta development -Q "IF OBJECT_ID(N'dbo.cleanup_marker', N'U') IS NULL CREATE TABLE dbo.cleanup_marker (id int PRIMARY KEY); IF NOT EXISTS (SELECT 1 FROM dbo.cleanup_marker WHERE id = 42) INSERT INTO dbo.cleanup_marker VALUES (42);"
+COMPOSE_PROJECT_NAME=alpha "$alpha" query development 'USE [app_beta_development]; SELECT DB_NAME();'
+COMPOSE_PROJECT_NAME=beta "$beta" query development 'USE [app_alpha_development]; SELECT DB_NAME();'
+COMPOSE_PROJECT_NAME=alpha "$alpha" query development 'USE [app_alpha_test]; SELECT DB_NAME();'
+COMPOSE_PROJECT_NAME=alpha "$alpha" query test 'USE [app_alpha_development]; SELECT DB_NAME();'
+COMPOSE_PROJECT_NAME=beta "$beta" query development 'USE [app_beta_test]; SELECT DB_NAME();'
+COMPOSE_PROJECT_NAME=beta "$beta" query test 'USE [app_beta_development]; SELECT DB_NAME();'
 
-# Drops only alpha_development and alpha_test on both engines; retains logins.
-./database shared remove-checkout alpha --remove-data
-./database shared psql beta development -c 'SELECT * FROM cleanup_marker;'
-./database shared sqlcmd beta development -Q 'SELECT * FROM dbo.cleanup_marker;'
-# Alpha can be reprovisioned explicitly later.
-./database shared init alpha
+# Normal down stops only alpha's application and removes its private app network.
+COMPOSE_PROJECT_NAME=alpha "$alpha" down
+COMPOSE_PROJECT_NAME=beta "$beta" note beta-survives-alpha-down
+COMPOSE_PROJECT_NAME=beta "$beta" query development 'SELECT * FROM notes'
+COMPOSE_PROJECT_NAME=alpha "$alpha" query development 'SELECT * FROM notes'
+
+# Explicit destructive opt-in: alpha only, both environments, logins retained.
+COMPOSE_PROJECT_NAME=alpha "$alpha" remove-data --remove-data
+COMPOSE_PROJECT_NAME=beta "$beta" query development 'SELECT * FROM notes'
+COMPOSE_PROJECT_NAME=alpha "$alpha" provision
+COMPOSE_PROJECT_NAME=alpha "$alpha" up
+COMPOSE_PROJECT_NAME=alpha "$alpha" test
 ```
 
-Disconnect the removed checkout's clients first. Cleanup does not force sessions
-closed; an in-use database can fail to drop. It does not stop shared servers or
-delete beta databases. Retained empty roles/logins preserve passwords on later
-reprovisioning. The **project owner only** can stop shared engines, preserving
-volumes, or opt into destroying all example data:
+Cleanup does not force other sessions closed. An in-use database can fail to drop; disconnect the selected checkout first. Normal `down` never drops databases, stops project servers, or removes the neighbor's app.
+
+SQL logins own no server roles. Database ownership stays with `sa`; each login has `db_owner` only inside its own database so app migrations can run. Guest CONNECT, TRUSTWORTHY, and cross-database ownership chaining are disabled. Other existing `app_` logins receive explicit CONNECT denials; subsequently created logins remain excluded by disabled guest access. PostgreSQL roles have no elevated attributes or inherited memberships; PUBLIC CONNECT/TEMPORARY is revoked and other `app_` grants are removed. System databases are not checkout databases; these settings are not production hardening.
+
+## PostgreSQL counterpart
+
+Stop both checkout apps before switching engines, then export `DB_ENGINE=postgres` and repeat the startup/provision/up/note/test lifecycle above. `servers up` starts only the selected engine, so PostgreSQL can be exercised independently. Its private alias is `example-shared-postgres`; SQL Server's remains `example-shared-sqlserver`. Both use `gateway-example-shared_default`.
+
+PostgreSQL cannot `USE` another database. Test explicit alternate connections using the native client inside the server, with the otherwise-valid source login:
 
 ```sh
-./database shared down
-# OR, destructive for BOTH checkouts:
-./database shared destroy --remove-all-data
+export DB_ENGINE=postgres
+export DB_SERVER_GROUP=shared
+for pair in \
+  app_alpha_development:app_beta_development \
+  app_beta_development:app_alpha_development \
+  app_alpha_development:app_alpha_test \
+  app_alpha_test:app_alpha_development \
+  app_beta_development:app_beta_test \
+  app_beta_test:app_beta_development
+do
+  source=${pair%:*}
+  target=${pair#*:}
+  docker compose -p gateway-example-shared -f "$example/compose.yml" exec -T \
+    -e "PGPASSWORD=Example-$source-Only9!" postgres \
+    psql -X -h example-shared-postgres -U "$source" -d "$target" \
+    -v ON_ERROR_STOP=1 -c 'SELECT current_database(), current_user;'
+done
 ```
 
-Do not run these project-owner commands from checkout teardown hooks. A server
-restart, resource exhaustion, or project-owner shutdown affects both checkouts.
-This sharing tradeoff does not fix private Docker network lifecycle/exhaustion
-(#41); do not prune other projects' networks to make this example start.
+Each must fail with `permission denied for database`; application tests also exercise development access denial using test credentials. Native clients are diagnostics/provisioning only; application migration, test setup, and HTTP work use Knex.
 
-## Equivalent separate-engine baseline and RAM measurement
+## Project lifecycle, baseline, and optional routing
 
-For a comparison, use exactly the same image versions, settings, four logical
-databases per engine (eight total), credentials, schema/data, queries, and warm-up on each topology. The
-baseline uses one pair of servers **per checkout** (four engines total), while
-the shared topology uses one pair (two engines total). Groups `alpha` and `beta`
-have separate Compose projects, volumes, networks, and aliases such as
-`example-alpha-postgres`; they are not extra logical databases on the shared pair.
-Never include both topologies in one RAM total.
+After stopping **all** attached checkout apps, the project owner may stop servers while retaining volumes, or explicitly destroy all example data:
 
 ```sh
-./database shared down
-./database alpha up
-./database alpha init alpha
-./database beta up
-./database beta init beta
-# Run the same workload against each baseline group; for example:
-./database alpha psql alpha development -c 'SELECT current_database(), current_user;'
-./database beta psql beta development -c 'SELECT current_database(), current_user;'
-./database alpha sqlcmd alpha development -Q 'SELECT DB_NAME(), ORIGINAL_LOGIN();'
-./database beta sqlcmd beta development -Q 'SELECT DB_NAME(), ORIGINAL_LOGIN();'
-# Also exercise both test databases with the same commands/environment=test.
-docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' $(docker ps -q --filter label=com.docker.compose.project=gateway-example-alpha) $(docker ps -q --filter label=com.docker.compose.project=gateway-example-beta)
-
-./database alpha down
-./database beta down
-./database shared up
-# Re-run the identical workload using group=shared, then measure both engines:
-docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' $(docker ps -q --filter label=com.docker.compose.project=gateway-example-shared)
+COMPOSE_PROJECT_NAME=alpha "$alpha" down
+COMPOSE_PROJECT_NAME=beta "$beta" down
+"$alpha" servers down
+# Destructive for every checkout on BOTH engines:
+"$alpha" servers destroy --remove-all-data
 ```
 
-Record the host/architecture, image IDs, memory limits, dataset/workload, warm-up,
-sampling interval, per-container measurements, and **sum of engine RAM** for each
-mode. Use repeated steady-state samples, not just image size or one startup
-sample. Report measured absolute/percentage change and any latency/contention
-tradeoff; packaging alone is not evidence of RAM reduction. Empty-database
-results only support a disposable idle-workload claim, not consumer capacity.
-After collecting evidence, destroy only these explicitly owned baseline projects
-if their data is no longer wanted:
+Do not invoke server shutdown from a checkout teardown hook. Resource exhaustion, server restarts, and project shutdown affect neighbors: sharing has a real contention/lifecycle tradeoff and does not fix Docker network exhaustion (#41). `COMPOSE_FILE` is supported as a colon-separated override of the normal file; for example use `COMPOSE_FILE=compose.yml:/absolute/private-network.yml` only on server commands. Do not prune unrelated networks.
+
+For a separate-engine baseline, select `DB_SERVER_GROUP=alpha` for alpha's server startup/provision/app commands and `DB_SERVER_GROUP=beta` for beta's. Each group has its own project, volumes, network, and original qualified aliases `example-alpha-sqlserver` / `example-beta-sqlserver` (and PostgreSQL equivalents). Use the same schema, notes, test suites, images, warm-up, and sample intervals in both topologies. Stop checkout apps before changing topology. Measure only engine containers, summing repeated `docker stats --no-stream` steady-state samples for the selected projects; never combine baseline and shared totals. Record host/image IDs, workload, limits, timing, and contention. The earlier 48.2% synthetic RAM result is not evidence of consumer adoption or capacity.
+
+Optional server routing retains `gateway.yml`. Only if a gateway and external `local-gateway` network **already exist**, the project owner can use:
 
 ```sh
-./database alpha destroy --remove-all-data
-./database beta destroy --remove-all-data
+DB_SERVER_GROUP=shared docker compose -p gateway-example-shared \
+  -f compose.yml -f gateway.yml up -d --wait sqlserver
 ```
 
-## Optional gateway attachment
+Use `postgres` instead for PostgreSQL. This never starts/restarts the gateway. Hostnames remain `sqlserver.example-shared.localhost` and `postgres.example-shared.localhost`: routing chooses a **server**, never a logical database or checkout. Private aliases stay qualified and no database ports are published.
 
-Not needed for any command above. If an existing gateway and external
-`local-gateway` network are already available, the project owner can apply:
-
-```sh
-DB_SERVER_GROUP=shared docker compose -p gateway-example-shared -f compose.yml -f gateway.yml up -d --wait
-```
-
-This attaches the **servers**, not per-checkout engines, and never starts or
-restarts the gateway. It advertises `postgres.example-shared.localhost` and
-`sqlserver.example-shared.localhost`, one hostname per engine. Connect using the
-gateway's PostgreSQL/SQL Server listener and the desired database/login. The
-router selects a server from the hostname; **it does not route logical database
-names or checkout identities**. `alpha` and `beta` use the same server hostname
-but different databases and credentials. Private aliases remain only on the
-project network. Do not add a hostname per logical database or publish server
-ports; coordinate hostname ownership before using a shared gateway.
+To adapt a real consumer, retain its existing Ruby `bin/dev`, application, migration runner, and test suite. Replace checkout engine services with a project-owned server network, derive distinct development/test database and login configuration from its checkout identity, move only database/login creation into explicit project provisioning, and remove administrator fallback from app initialization. Keep normal app `down` independent of server lifecycle.

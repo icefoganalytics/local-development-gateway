@@ -1,0 +1,53 @@
+x-application: &application
+  build: ./app
+  environment:
+    DB_ENGINE: ${DB_ENGINE:?use bin/dev}
+    APP_HOST: ${APP_HOST:?use bin/dev}
+    DB_HOST: ${DB_HOST:?use bin/dev}
+    DB_NAME: ${DB_NAME:?use bin/dev}
+    DB_USER: ${DB_USER:?use bin/dev}
+    DB_PASSWORD: ${DB_PASSWORD:?use bin/dev}
+  networks:
+    - default
+    - database
+
+services:
+  app:
+    <<: *application
+    networks:
+      default:
+        aliases:
+          - ${APP_HOST:?use bin/dev}
+      database: {}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          fetch("http://localhost:3000/notes")
+            .then((response) => {
+              if (!response.ok) {
+                process.exit(1)
+              }
+
+              process.exit(0)
+            })
+            .catch((error) => {
+              console.error(error)
+              process.exit(1)
+            })
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  test_app:
+    <<: *application
+    profiles: [test]
+    command: [npm, test]
+
+networks:
+  database:
+    external: true
+    name: ${DB_SERVER_NETWORK:?use bin/dev}

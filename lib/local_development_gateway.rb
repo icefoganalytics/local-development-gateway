@@ -141,6 +141,7 @@ module LocalDevelopmentGateway
 
     def service_version_status(service, id)
       container = JSON.parse(@runner.call("inspect", id)).fetch(0)
+
       if service == "database-router"
         version = router_version(id)
         provenance = "process-start record"
@@ -150,18 +151,27 @@ module LocalDevelopmentGateway
         provenance = "container-creation label"
         asset_target = "/etc/traefik/traefik.yml"
       end
+
       version = "unknown" if version.nil? || version.empty?
       comparison = version_comparison(version)
+
       mount =
         container
           .fetch("Mounts", [])
           .find { |entry| entry["Destination"] == asset_target }
-      source = mount ? mount.fetch("Source") : "none"
+      source = "none"
+      source = mount.fetch("Source") if mount
+
       image = container.dig("Config", "Image") || "unknown"
       image_id = container["Image"] || "unknown"
-      "#{service} (#{id[0, 12]}): active=#{version}; #{comparison}; " \
-        "provenance=#{provenance}; image=#{image}; image-id=#{image_id}; " \
-        "mounted assets=#{source}\n"
+
+      <<~STATUS
+        #{service} (#{id[0, 12]}): active=#{version}; #{comparison}
+          provenance=#{provenance}
+          image=#{image}
+          image-id=#{image_id}
+          mounted assets=#{source}
+      STATUS
     end
 
     def router_version(id)

@@ -16,7 +16,7 @@ GO
 DECLARE @other sysname, @sql nvarchar(max);
 DECLARE other_logins CURSOR LOCAL FAST_FORWARD FOR
     SELECT name FROM master.sys.server_principals
-    WHERE name IN (N'alpha_development', N'alpha_test', N'beta_development', N'beta_test')
+    WHERE name LIKE N'app[_]%' AND type = 'S'
       AND name <> N'$(database)';
 OPEN other_logins;
 FETCH NEXT FROM other_logins INTO @other;

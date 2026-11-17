@@ -34,7 +34,9 @@ services:
         - ruby
         - -rsocket
         - -e
-        - TCPSocket.new("127.0.0.1", 1433).close; TCPSocket.new("127.0.0.1", 5432).close
+        - |
+          TCPSocket.new("127.0.0.1", 1433).close
+          TCPSocket.new("127.0.0.1", 5432).close
       interval: 30s
       timeout: 3s
       retries: 3

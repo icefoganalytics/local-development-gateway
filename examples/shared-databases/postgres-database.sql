@@ -11,6 +11,6 @@ GRANT CONNECT, TEMPORARY ON DATABASE :"database" TO :"database";
 -- Remove any stale grants to the other disposable identities.
 SELECT format('REVOKE ALL ON DATABASE %I FROM %I', :'database', rolname)
 FROM pg_roles
-WHERE rolname IN ('alpha_development', 'alpha_test', 'beta_development', 'beta_test')
+WHERE rolname LIKE 'app\_%' ESCAPE '\'
   AND rolname <> :'database'
 \gexec
