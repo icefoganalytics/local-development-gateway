@@ -7,6 +7,8 @@ LABEL org.opencontainers.image.source="https://github.com/icefoganalytics/local-
       org.opencontainers.image.revision="$REVISION"
 
 WORKDIR /app
+
 COPY lib/ ./lib/
 COPY bin/database-router ./bin/database-router
+
 CMD ["ruby", "-I/app/lib", "/app/bin/database-router"]
