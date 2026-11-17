@@ -56,6 +56,8 @@ Without an explicit `COMPOSE_PROJECT_NAME`, identity is `checkout_<12 hexadecima
 
 Databases and logins are `app_<identity>_development` and `app_<identity>_test`, with passwords `Example-<database>-Only9!`. The fixed `app_` namespace separates example identities from server accounts. Provisioning is repeatable, retains data/passwords, rejects unexpected elevated PostgreSQL roles or SQL Server server-role/grant membership, and restores access restrictions. A changed password fails application authentication rather than silently resetting data.
 
+Run `bin/dev lint` to build the example image and run its pinned Oxlint checks without database servers or a Docker network. Lint is non-fixing and treats warnings as failures. The example's `.omp-verifier.json` binds JavaScript checks to that same wrapper; no host npm installation is required.
+
 ## Executable isolation and lifecycle QA
 
 Run the successful startup, HTTP writes, and tests above first. SQL Server cross-database commands below must fail specifically with database access denial (for example SQL Server 916), not syntax, login, network, or missing-server errors. Repeat after re-provisioning to cover idempotence.

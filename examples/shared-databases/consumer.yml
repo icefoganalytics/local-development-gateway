@@ -47,6 +47,12 @@ services:
     profiles: [test]
     command: [npm, test]
 
+  lint:
+    build: ./app
+    profiles: [checks]
+    network_mode: none
+    command: [npm, run, lint]
+
 networks:
   database:
     external: true

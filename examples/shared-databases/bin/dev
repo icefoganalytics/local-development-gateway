@@ -61,6 +61,18 @@ class Dev
         "test_app",
         environment: "test"
       )
+    when "lint"
+      no_arguments!(args)
+      compose(
+        "consumer.yml",
+        @identity,
+        "run",
+        "--rm",
+        "--build",
+        "--no-deps",
+        "-T",
+        "lint"
+      )
     when "query"
       environment = args.shift
       abort "Supply one SQL query" unless args.length == 1
@@ -94,7 +106,7 @@ class Dev
       abort <<~USAGE
         Usage: bin/dev identity
                bin/dev servers up|down|destroy --remove-all-data
-               bin/dev provision|up|migrate|test|down
+               bin/dev provision|up|migrate|test|lint|down
                bin/dev query development|test SQL
                bin/dev note TEXT
                bin/dev remove-data --remove-data

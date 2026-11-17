@@ -4,11 +4,15 @@
   "type": "module",
   "scripts": {
     "start": "node app.mjs",
-    "test": "node --test app.test.mjs"
+    "test": "node --test app.test.mjs",
+    "lint": "oxlint --deny-warnings ."
   },
   "dependencies": {
     "knex": "3.3.0",
     "pg": "8.16.3",
     "tedious": "19.2.2"
+  },
+  "devDependencies": {
+    "oxlint": "1.94.0"
   }
 }

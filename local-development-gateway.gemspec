@@ -25,6 +25,8 @@ Gem::Specification.new do |spec|
       "bin/local-development-gateway",
       "examples/database-aliases/*",
       "examples/shared-databases/**/*",
+      "examples/shared-databases/app/.omp-verifier.json",
+      "examples/shared-databases/app/.oxlintrc.json",
       "lib/**/*.rb"
     ]
   spec.bindir = "bin"

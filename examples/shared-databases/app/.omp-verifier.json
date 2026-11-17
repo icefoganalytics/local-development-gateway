@@ -1,0 +1,10 @@
+{
+  "lint": {
+    "commands": {
+      "javascript": {
+        "tool": "oxlint",
+        "command": ["ruby", "../bin/dev", "lint"]
+      }
+    }
+  }
+}
