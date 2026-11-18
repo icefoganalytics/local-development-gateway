@@ -27,7 +27,7 @@ services:
       - local-gateway
 
   database-router:
-    image: "${LOCAL_DEVELOPMENT_GATEWAY_IMAGE:-ghcr.io/icefoganalytics/local-development-gateway/database-router:0.4.0}"
+    image: "${LOCAL_DEVELOPMENT_GATEWAY_IMAGE:-ghcr.io/icefoganalytics/local-development-gateway/database-router:0.4.0@sha256:df15d59030cb839c89899075033b7b54e62772f88d4d7eb470f452038f447ec4}"
     healthcheck:
       test:
         - CMD
