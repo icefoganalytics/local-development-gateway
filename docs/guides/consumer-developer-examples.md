@@ -15,7 +15,7 @@ The snippets adapt these actual, clean local HEADs inspected on 2026-11-17. The 
 | Travel | `5966448cb387227fa9d7c51b42da4906d0ccc85d` | [bin/dev](https://github.com/icefoganalytics/travel-authorization/blob/5966448cb387227fa9d7c51b42da4906d0ccc85d/bin/dev), [development Compose](https://github.com/icefoganalytics/travel-authorization/blob/5966448cb387227fa9d7c51b42da4906d0ccc85d/docker-compose.development.yml) |
 | TK | `9699f8ac89d5fc7935c40f95f44c64bfeaf0931f` | [bin/dev](https://github.com/icefoganalytics/traditional-knowledge/blob/9699f8ac89d5fc7935c40f95f44c64bfeaf0931f/bin/dev), [development Compose](https://github.com/icefoganalytics/traditional-knowledge/blob/9699f8ac89d5fc7935c40f95f44c64bfeaf0931f/docker-compose.development.yml) |
 
-For additional files named below, use the same repository and pinned revision, not a moving default branch. ELCC, WRAP, and Travel currently lock gateway gem 0.2.2; TK locks 0.1.2. Each adoption must update its existing Gemfile/lock to the coordinated candidate/release before using this lifecycle contract. Do not commit a personal source path or assume the candidate image is published.
+For additional files named below, use the same repository and pinned revision, not a moving default branch. The inspected ELCC, WRAP, and Travel baselines lock gateway gem 0.2.2; TK locks 0.1.2. Each adoption must update its existing Gemfile/lock to `~> 0.4.0` before using this lifecycle contract. Do not commit a personal source path.
 
 ## Shared contract: ordinary app commands, automatic gateway
 
@@ -33,7 +33,7 @@ LocalDevelopmentGateway.with_running(ensure_running: false) do
 end
 ```
 
-Keep this inside development paths only; preserve each wrapper's existing nondevelopment delegation. Retain the existing module-level `LocalDevelopmentGateway.with_running` calls: updating the bundle selects the candidate client contract without changing their receivers. Do not wrap it in a second management CLI. In particular, a wrapped `compose` call must use `execution_mode: WAIT_FOR_PROCESS`, not `exec`: replacing Ruby would skip block cleanup. Propagate failed Compose operations; do not report a successful test or teardown from an unchecked `system` result.
+Keep this inside development paths only; preserve each wrapper's existing nondevelopment delegation. Retain the existing module-level `LocalDevelopmentGateway.with_running` calls: updating the bundle selects the coordinated client contract without changing their receivers. Do not wrap it in a second management CLI. In particular, a wrapped `compose` call must use `execution_mode: WAIT_FOR_PROCESS`, not `exec`: replacing Ruby would skip block cleanup. Propagate failed Compose operations; do not report a successful test or teardown from an unchecked `system` result.
 
 The client, not downstream Ruby wrappers, owns per-user/per-Docker-daemon coordination: short coordinator file locks serialize lifecycle decisions; pending operations retain their own file locks while project commands execute. A simultaneous `up` must not lose the gateway to another checkout's `down` between readiness and container attachment. Locks are scoped to Docker daemon identity, not merely a checkout directory. Consumer wrappers must not invent lock files, counters, stale PID cleanup, or private gateway ownership.
 
@@ -78,7 +78,7 @@ Checkout Compose declares the private network **external**, retaining its normal
 
 ### Setup is not the daily loop
 
-A project-owner adoption PR first creates its own shared-server Compose/provisioning owners and preserves/backs up old volumes. After the coordinated candidate installation, run `local-development-gateway hold setup` before the first server startup: it ensures gateway readiness and creates the external `local-gateway` network that server Compose requires. Start servers with native Compose and provision restricted development/test databases while that hold remains active. For example, **after creating the proposed file above**, `docker compose -f compose.shared-db.yml up -d sqlserver` starts ELCC's server. Equivalent proposed owners start WRAP's `sqlserver`, TK's `sqlserver`, or Travel's `postgres travcom travelport`. These are design names, not files or commands that already exist in the consumers. When provisioning is finished, run `local-development-gateway release setup`; the passive servers remain running, and idle-stop preserves the network. This initial setup hold is not another step in the daily loop.
+A project-owner adoption PR first creates its own shared-server Compose/provisioning owners and preserves/backs up old volumes. After the coordinated gateway installation, run `local-development-gateway hold setup` before the first server startup: it ensures gateway readiness and creates the external `local-gateway` network that server Compose requires. Start servers with native Compose and provision restricted development/test databases while that hold remains active. For example, **after creating the proposed file above**, `docker compose -f compose.shared-db.yml up -d sqlserver` starts ELCC's server. Equivalent proposed owners start WRAP's `sqlserver`, TK's `sqlserver`, or Travel's `postgres travcom travelport`. These are design names, not files or commands that already exist in the consumers. When provisioning is finished, run `local-development-gateway release setup`; the passive servers remain running, and idle-stop preserves the network. This initial setup hold is not another step in the daily loop.
 
 Per checkout, allocate a stable collision-resistant key (examples use `a7c91`), provision the named databases and distinct dev/test logins administratively, restore development data explicitly, and record connection inputs in ignored local root `.env`/approved local configuration. Do not print credentials or put admin credentials in apps. Compose `${NAME:?message}` inputs below require those local values; no secret values are included. Extend the existing configuration owner rather than adding another shell command for developers to remember. Normal migrations/seeds/test resets remain application-owned, but automatic server-level database creation must become validation of the provisioned target.
 
@@ -88,7 +88,7 @@ Server maintenance is separate: checkout `down` neither stops shared databases n
 
 **One-time setup:** retain SQL Server `2019-CU28-ubuntu-20.04`. Provision `elcc_a7c91_dev` and `elcc_a7c91_test` on `elcc-sqlserver`, with different restricted logins/passwords. Use the project-server shape above. ELCC has no observed `bin/dev db --export` implementation: establish the canonical native SQL Server backup/restore procedure before moving data, rather than inventing an export command.
 
-**Small existing-wrapper change:** retain `bin/dev#up` and `#down`'s module-level gateway calls, `OpenInEditorBridge.compose` bodies and UID/GID/environment assembly; update the bundle to select the candidate implementation. In `down`, select the same development files as `up` (`compose_file_options(gateway: true, **kwargs)`). Adjust the existing `run` method, which is also used by `test_api`, to wait:
+**Small existing-wrapper change:** retain `bin/dev#up` and `#down`'s module-level gateway calls, `OpenInEditorBridge.compose` bodies and UID/GID/environment assembly; update the bundle to select version 0.4.0. In `down`, select the same development files as `up` (`compose_file_options(gateway: true, **kwargs)`). Adjust the existing `run` method, which is also used by `test_api`, to wait:
 
 ```ruby
 def run(*args, **kwargs)
@@ -150,7 +150,7 @@ Remove `db` and the API/test dependency edges to it from this file and its obsol
 
 **One-time setup:** project-owned `wrap-sqlserver` must use the existing `wrap-db:full-text` build from [db.Dockerfile](https://github.com/icefoganalytics/wrap/blob/67883eb5612162b8bd67541dfd522148f70e24b1/db.Dockerfile): SQL Server **2025 CU7 / Ubuntu 24.04** plus `mssql-server-fts`. Provision `wrap_a7c91_dev` / `wrap_a7c91_test` and separate logins. Give the server `local-gateway.tcp.hostname: db.wrap.localhost`, `local-gateway.tcp.driver: sql_server`, `local-gateway.tcp.port: "1433"`, and lifecycle `passive`, attached to project-owned `wrap-shared-db` plus external `local-gateway`.
 
-**Small existing-wrapper change:** keep `up`'s `check_development_environment`, Compose flags, `WAIT_FOR_PROCESS`, and existing module-level gateway calls in `up`/`down`; update the bundle to the candidate. Add `gateway: true` to development teardown to match the startup files. In the existing `run`, preserve the web `--no-deps` special case and wrap the final Compose operation:
+**Small existing-wrapper change:** keep `up`'s `check_development_environment`, Compose flags, `WAIT_FOR_PROCESS`, and existing module-level gateway calls in `up`/`down`; update the bundle to version 0.4.0. Add `gateway: true` to development teardown to match the startup files. In the existing `run`, preserve the web `--no-deps` special case and wrap the final Compose operation:
 
 ```ruby
 LocalDevelopmentGateway.with_running do
@@ -227,7 +227,7 @@ WRAP's [environment guard](https://github.com/icefoganalytics/wrap/blob/67883eb5
 
 All three attach to project-owned `travel-shared-db` and external `local-gateway`, with `passive` lifecycle labels. Set `local-gateway.tcp.hostname` to the table's desktop route and `local-gateway.tcp.driver` / `local-gateway.tcp.port` to `postgresql` / `"5432"` on PostgreSQL and `sql_server` / `"1433"` on each SQL Server endpoint. Use distinct restricted roles for all six databases. The current PostgreSQL `app` bootstrap role and SQL Server `sa` are not the desired app identities. Do not point these local simulators or tests at real production Travelport.
 
-**Small existing-wrapper change:** Travel already waits in `run` and `stop` and uses `OpenInEditorBridge.compose` for `up`/`down`. Retain its existing module-level gateway calls and update the bundle to the candidate, preserving `ensure_running: false` in `down`/`stop`, nondevelopment guards, the one-off `traefik.enable=false` label, editor-bridge environment and checkout-name hashing. No receiver changes or additional command dispatch are needed.
+**Small existing-wrapper change:** Travel already waits in `run` and `stop` and uses `OpenInEditorBridge.compose` for `up`/`down`. Retain its existing module-level gateway calls and update the bundle to version 0.4.0, preserving `ensure_running: false` in `down`/`stop`, nondevelopment guards, the one-off `traefik.enable=false` label, editor-bridge environment and checkout-name hashing. No receiver changes or additional command dispatch are needed.
 
 **Base development Compose edits:** use all five fields of each family, with explicit test overrides. This development anchor shows the complete connection surface:
 
@@ -285,7 +285,7 @@ TK is not just another API/web pair. At the pinned revision its development stac
 
 **One-time setup:** provision `tk_a7c91_dev` / `tk_a7c91_test` with separate logins on project-owned `tk-sqlserver`, preserving the 2022 CU14 engine. The server owns `tk-shared-db`, a new SQL volume and route `db.tk.localhost` (`sql_server`, `1433`, lifecycle `passive`), and joins external `local-gateway`. Stop **API and archiver writers** before native backup/restore; retain old `db_data`. No DB backup/export implementation was observed in TK's `bin/dev`; adopt a canonical native procedure rather than advertise an imaginary wrapper command.
 
-**Small existing-wrapper change:** retain the module-level gateway calls, `OpenInEditorBridge.with_running` nesting in `up` and `down`, and both existing `WAIT_FOR_PROCESS` calls; update the bundle to the candidate. Make development `down` use `gateway: true` to match `up`. TK's current `run` has no gateway wrapper; replace its development branch with:
+**Small existing-wrapper change:** retain the module-level gateway calls, `OpenInEditorBridge.with_running` nesting in `up` and `down`, and both existing `WAIT_FOR_PROCESS` calls; update the bundle to version 0.4.0. Make development `down` use `gateway: true` to match `up`. TK's current `run` has no gateway wrapper; replace its development branch with:
 
 ```ruby
 LocalDevelopmentGateway.with_running do
@@ -349,7 +349,7 @@ The real `test_api` owner runs `test_api npm run test`; `api/tests/global-setup.
 
 ## DBeaver without keeping an app checkout alive
 
-After the coordinated candidate is installed and project servers/routes are configured:
+After the coordinated gateway is installed and project servers/routes are configured:
 
 ```sh
 local-development-gateway hold dbeaver

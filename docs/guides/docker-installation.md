@@ -1,36 +1,27 @@
 # Docker-Only Gateway Installation
 
-This branch prepares the **unreleased 0.4.0 candidate**. The image tag below is a build target, not a claim that it exists in GHCR. Build it locally for draft evaluation. Do not replace a running shared gateway until all participating developers/checkouts have agreed to the interruption.
+Version **0.4.0** runs the gateway from one Compose file and registry images. Do not replace a running shared gateway until all participating developers/checkouts have agreed to the interruption.
 
-The runtime requires Docker Engine with Linux containers and Docker Compose **2.20.2 or newer** (`start_interval` support). It does not require host Ruby, Bundler, a gem installation, or a gateway source checkout after the image is built. Consumer `bin/dev` wrappers can still have their own Ruby requirements. SQL Server examples require an engine-supported platform; the local reference scenario is Linux amd64.
+The runtime requires Docker Engine with Linux containers and Docker Compose **2.20.2 or newer** (`start_interval` support). It does not require host Ruby, Bundler, a gem installation, or a gateway source checkout. Consumer `bin/dev` wrappers can still have their own Ruby requirements. The router image targets Linux amd64; Windows/macOS and other architectures have not been verified. SQL Server examples also require an engine-supported platform.
 
-## Build or Transfer the Candidate
+## Download the Compose File
 
-From this branch's repository root:
-
-```sh
-docker build --build-arg REVISION="$(git rev-parse HEAD)" \
-  -t ghcr.io/icefoganalytics/local-development-gateway/database-router:0.4.0 .
-docker image inspect ghcr.io/icefoganalytics/local-development-gateway/database-router:0.4.0 \
-  --format '{{.Id}} {{json .Config.Labels}}'
-```
-
-Only the router library and its entrypoint enter the build context. There is no package installation during build or startup. The Ruby base and Traefik image are digest-pinned. Docker socket access is privileged daemon access even when the socket bind mount says `:ro`; use this only on a trusted development machine.
-
-For another machine, transfer the image archive and this branch's `docker-compose.yml` through your normal trusted file-transfer mechanism:
+Download [`docker-compose.yml` from release 0.4.0](https://github.com/icefoganalytics/local-development-gateway/releases/download/v0.4.0/docker-compose.yml) into a stable, user-owned installation directory outside any disposable worktree. For example:
 
 ```sh
-docker save ghcr.io/icefoganalytics/local-development-gateway/database-router:0.4.0 \
-  -o database-router-0.4.0.tar
-# On the destination:
-docker load -i database-router-0.4.0.tar
+mkdir -p ~/.local/share/local-development-gateway
+cd ~/.local/share/local-development-gateway
+curl --fail --location --output docker-compose.yml \
+  https://github.com/icefoganalytics/local-development-gateway/releases/download/v0.4.0/docker-compose.yml
 ```
 
-Keep a copy of the previous Compose file and the exact previous image references before upgrades. A local image ID identifies the candidate you tested; it is not evidence of registry publication.
+The Compose file pins the router and Traefik to immutable registry digests. Docker downloads the images during installation; no local build or source transfer is needed. Docker socket access is privileged daemon access even when the socket bind mount says `:ro`; use this only on a trusted development machine.
+
+Keep a copy of the previous Compose file and the exact previous image references before upgrades.
 
 ## Install from One Compose File
 
-Copy `docker-compose.yml` into a stable, user-owned installation directory outside any disposable worktree. Run the following from that directory, with ports 80, 1433, and 5432 on loopback available:
+Run the following from the installation directory, with ports 80, 1433, and 5432 on loopback available:
 
 ```sh
 docker compose -p local-gateway -f docker-compose.yml up -d --wait
@@ -62,7 +53,7 @@ docker ps -a --filter network=local-gateway \
 docker network inspect local-gateway
 ```
 
-For ordinary shutdown, use the candidate's `local-development-gateway down`, which refuses to stop while a consumer, pending operation, or named hold remains. Unknown legacy containers remain blockers. A shared database may be explicitly labeled `local-gateway.lifecycle: passive`; pair that with active consumer labels on app/job/test services, even when they only use a project's private network. The four [consumer examples](consumer-developer-examples.md) show this boundary.
+For ordinary shutdown, use `local-development-gateway down` from gem 0.4.0 or newer, which refuses to stop while a consumer, pending operation, or named hold remains. Unknown legacy containers remain blockers. A shared database may be explicitly labeled `local-gateway.lifecycle: passive`; pair that with active consumer labels on app/job/test services, even when they only use a project's private network. The four [consumer examples](consumer-developer-examples.md) show this boundary.
 
 For explicit machine-wide **uninstallation**, first coordinate with all owners and detach their containers from the gateway network. Only then run `docker compose -p local-gateway -f docker-compose.yml down`. Normal project teardown is not uninstallation.
 
@@ -72,13 +63,13 @@ Do not delete consumer database volumes or prune Docker networks to upgrade the 
 docker compose -p local-gateway -f docker-compose.yml up -d --no-deps --force-recreate --wait database-router
 ```
 
-Existing database sessions will disconnect. Verify the process version/image identity, then connect through both database protocols. To roll back, restore the previous Compose file and image selection and explicitly recreate only the affected service. The candidate does not migrate application data.
+Existing database sessions will disconnect. Verify the process version/image identity, then connect through both database protocols. To roll back, restore the previous Compose file and image selection and explicitly recreate only the affected service. The gateway does not migrate application data.
 
 ## Optional Ruby Integration
 
-The candidate gem provides `with_running`, `ensure_running`, `ready?`, `status`, `logs`, `stop_if_unused`, named `hold`/`release` operations, and deterministic private alias generation. It carries an image-based Compose file, not a runtime source/config mount. `status` reports the active version, requested image, immutable running image ID, and legacy mounted assets when present.
+Gem 0.4.0 provides `with_running`, `ensure_running`, `ready?`, `status`, `logs`, `stop_if_unused`, named `hold`/`release` operations, and deterministic private alias generation. It carries an image-based Compose file, not a runtime source/config mount. `status` reports the active version, requested image, immutable running image ID, and legacy mounted assets when present.
 
-For candidate evaluation, consumers may point their local bundle at this branch; do not commit personal checkout paths. For normal adoption, wait for the coordinated image/gem release. Update every cooperating consumer's old gem and retain its existing lifecycle hooks using the candidate contract. An old client can still recreate the legacy installation and bypass coordination. See [lifecycle ownership](../architecture/gateway-lifecycle.md) and [the four consumer examples](consumer-developer-examples.md).
+Add `gem "local-development-gateway", "~> 0.4.0"` to the consumer's existing bundle. Update every cooperating consumer's old gem and retain its existing lifecycle hooks using the coordinated contract. An old client can still recreate the legacy installation and bypass coordination. Do not commit personal checkout paths. See [lifecycle ownership](../architecture/gateway-lifecycle.md) and [the four consumer examples](consumer-developer-examples.md).
 
 The routers remain Docker-only. Automatic project lifecycle uses the existing host Ruby wrapper, not a new native service. A machine with only Docker can run the stack explicitly with Compose, but raw Compose commands do not participate in the unused-gateway guard. Docker Engine/Desktop must already be running; Windows/macOS behavior and filesystem locking still require native verification.
 
@@ -88,6 +79,6 @@ A custom image can be selected with `LOCAL_DEVELOPMENT_GATEWAY_IMAGE`, including
 
 ## Release Gate
 
-Before publishing this candidate, build/push the router image for the supported platforms, resolve its registry digest, and select that immutable digest in the released Compose artifact. Publish the matching Compose file and optional gem together; verify a fresh remote pull and installation on a clean machine. Those publication/install checks are not established by a local draft image build. Do not publish the gem while its default image is unavailable.
+For each release, build/push the router image for the supported platforms, resolve its registry digest, and select that immutable digest in the released Compose artifact. Publish the matching Compose file and optional gem together; verify a fresh remote pull and installation in a clean Docker environment. Those publication/install checks are not established by a local image build. Do not publish the gem while its default image is unavailable.
 
 The shared-database example is a separate opt-in consumer architecture change. Image packaging removes installation coupling; reducing repeated database server processes is the source of the expected material RAM savings.

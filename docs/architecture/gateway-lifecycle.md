@@ -1,6 +1,6 @@
 # Gateway lifecycle ownership
 
-The candidate lifecycle connects the developer's existing `bin/dev` command to one shared Docker Compose gateway. The routers remain self-contained containers; the existing consumer-side Ruby wrapper coordinates their use. Docker itself must already be running. This is not browser-triggered activation, a host service manager, or a database provisioning service.
+The lifecycle connects the developer's existing `bin/dev` command to one shared Docker Compose gateway. The routers remain self-contained containers; the existing consumer-side Ruby wrapper coordinates their use. Docker itself must already be running. This is not browser-triggered activation, a host service manager, or a database provisioning service.
 
 ## Three independent owners
 
