@@ -32,14 +32,24 @@ test("when using checkout test credentials, persists and reads a note", async ()
   const notes = await database("notes").select("body")
 
   // Assert
-  assert.deepEqual(notes, [{ body: "consumer test" }])
+  assert.deepEqual(notes, [
+    {
+      body: "consumer test",
+    },
+  ])
 })
 
 test("when test credentials access development, denies the connection", async () => {
   // Arrange
   const developmentName = process.env.DB_NAME.replace(/_test$/, "_development")
   const isPostgres = process.env.DB_ENGINE === "postgres"
-  const development = isPostgres ? connect(developmentName) : connect()
+  let development
+  if (isPostgres) {
+    development = connect(developmentName)
+  } else {
+    development = connect()
+  }
+
   try {
     const query = isPostgres ? "SELECT 1" : `USE [${developmentName}]; SELECT DB_NAME();`
 
