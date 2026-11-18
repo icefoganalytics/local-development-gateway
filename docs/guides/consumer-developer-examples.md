@@ -140,11 +140,11 @@ Remove `db` and the API/test dependency edges to it from this file and its obsol
 
 ```sh
 ./bin/dev up -d
-./bin/dev test api --run
+./bin/dev test api -- --run
 ./bin/dev down
 ```
 
-`test api` is the real wrapper route to `test_api npm run test`; `--run` makes the Vitest invocation finite. Acceptance must retain normal `api/tests/global-setup.ts` initializers and test seed policy, replace `10-ensure-database.ts`'s server-creation fallback, and prove `api/tests/support/clean-database.ts` only resets the private test database while another checkout retains data. Do not use `--skip-setup` for adoption acceptance.
+`test api` is the real wrapper route to `test_api npm run test`; the `--` separator forwards `--run` to Vitest for a finite invocation. Acceptance must retain normal `api/tests/global-setup.ts` initializers and test seed policy, replace `10-ensure-database.ts`'s server-creation fallback, and prove `api/tests/support/clean-database.ts` only resets the private test database while another checkout retains data. Do not use `--skip-setup` for adoption acceptance.
 
 ## 2. WRAP: SQL Server full-text, jobs, and checkout search
 
@@ -209,7 +209,7 @@ WRAP's [environment guard](https://github.com/icefoganalytics/wrap/blob/67883eb5
 
 ```sh
 ./bin/dev up -d
-./bin/dev test api --run
+./bin/dev test api -- --run
 ./bin/dev down
 ```
 
@@ -273,7 +273,7 @@ Retain each family's host, port, and local trust settings from the anchor. Remov
 
 ```sh
 ./bin/dev up -d
-./bin/dev test api --run
+./bin/dev test api -- --run
 ./bin/dev down
 ```
 
@@ -341,7 +341,7 @@ Remove checkout `db` and the `api`, `archiver`, and `test_api` dependency edges 
 
 ```sh
 ./bin/dev up -d
-./bin/dev test api --run
+./bin/dev test api -- --run
 ./bin/dev down
 ```
 
