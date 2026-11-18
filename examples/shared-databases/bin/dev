@@ -1,0 +1,63 @@
+#!/usr/bin/env ruby
+# Consumer-side Ruby convenience wrapper; the gateway does not require Ruby.
+require "digest"
+
+class Dev
+  ROOT = File.realpath("..", __dir__)
+
+  def call(command = "--help", *args)
+    case command
+    when "up", "down", "run", "test", "lint", "migrate"
+      public_send(command, *args)
+    else
+      compose(command, *args)
+    end
+  end
+
+  def up(*args)
+    compose(*%w[up -d --build --wait], *args)
+  end
+
+  def down(*args)
+    compose("down", *args)
+  end
+
+  def run(*args)
+    compose(*%w[run --rm --build --no-deps -T], *args)
+  end
+
+  def test(*args)
+    run(*%w[test_app npm test], *args)
+  end
+
+  def lint(*args)
+    run(*%w[lint npm run lint --], *args)
+  end
+
+  def migrate(*args)
+    run(*%w[app node app.mjs migrate], *args)
+  end
+
+  private
+
+  def compose(*args)
+    exec(dynamic_environment_variables, "docker", "compose", *args, chdir: ROOT)
+  end
+
+  def dynamic_environment_variables
+    path_hash = Digest::SHA256.hexdigest(ROOT)[0, 12]
+    checkout = ENV.fetch("COMPOSE_PROJECT_NAME", "checkout_#{path_hash}")
+
+    unless /\A[a-z][a-z0-9_]{0,31}\z/.match?(checkout)
+      abort "COMPOSE_PROJECT_NAME must match [a-z][a-z0-9_]{0,31}; use a unique name per checkout"
+    end
+
+    {
+      "COMPOSE_FILE" => ENV.fetch("COMPOSE_FILE", "consumer.yml"),
+      "COMPOSE_PROJECT_NAME" => checkout,
+      "CHECKOUT_NAME" => checkout
+    }
+  end
+end
+
+Dev.new.call(*ARGV)

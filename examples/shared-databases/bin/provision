@@ -1,0 +1,24 @@
+#!/usr/bin/env ruby
+# Project-owner operation, separate from normal checkout commands.
+root = File.realpath("..", __dir__)
+engine = ENV.fetch("DB_ENGINE", "sqlserver")
+
+unless %w[postgres sqlserver].include?(engine)
+  abort "DB_ENGINE must be postgres or sqlserver"
+end
+
+abort "Usage: bin/provision CHECKOUT_NAME" unless ARGV.length == 1
+
+exec(
+  { "CHECKOUT_NAME" => ARGV.fetch(0) },
+  "docker",
+  "compose",
+  "--project-name",
+  ENV.fetch("DB_SERVER_PROJECT", "gateway-example-shared"),
+  "run",
+  "--rm",
+  "--no-deps",
+  "-T",
+  "provision-#{engine}",
+  chdir: root
+)

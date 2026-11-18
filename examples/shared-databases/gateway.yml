@@ -1,0 +1,24 @@
+# Optional: requires an already-running gateway; never starts or restarts it.
+services:
+  postgres:
+    networks:
+      default: {}
+      local-gateway: {}
+    labels:
+      local-gateway.lifecycle: passive
+      local-gateway.tcp.driver: postgresql
+      local-gateway.tcp.hostname: postgres.${COMPOSE_PROJECT_NAME}.localhost
+      local-gateway.tcp.port: '5432'
+  sqlserver:
+    networks:
+      default: {}
+      local-gateway: {}
+    labels:
+      local-gateway.lifecycle: passive
+      local-gateway.tcp.driver: sql_server
+      local-gateway.tcp.hostname: sqlserver.${COMPOSE_PROJECT_NAME}.localhost
+      local-gateway.tcp.port: '1433'
+networks:
+  local-gateway:
+    external: true
+    name: local-gateway

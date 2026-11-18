@@ -25,36 +25,22 @@ The checkout folder identifies the project. A separately named worktree such as 
 These local `*.localhost` hostnames resolve to loopback and do not require a
 public domain, external DNS provider, or internet-facing listener.
 
-## Start once per day
+The [knowledge base](docs/README.md) connects the [core requirements](docs/requirements/effective-gateway.md), lifecycle ownership, and concrete developer examples for ELCC, WRAP, Travel Authorization, and Traditional Knowledge.
 
-Use the small repository wrapper for the common lifecycle commands:
+## Install and Start with Docker
 
-```sh
-bin/dev up
-```
-
-Check the gateway:
+Download [`docker-compose.yml` from release 0.4.0](https://github.com/icefoganalytics/local-development-gateway/releases/download/v0.4.0/docker-compose.yml) into a stable installation directory, then run:
 
 ```sh
-bin/dev status
+docker compose -p local-gateway -f docker-compose.yml up -d --wait
+docker compose -p local-gateway -f docker-compose.yml ps
 ```
 
-Follow its logs:
+Docker pulls the digest-pinned router and Traefik images. No gateway checkout, host Ruby, or npm installation is needed. The router image targets Linux amd64; Docker Compose 2.20.2 or newer is required. Windows/macOS behavior is not yet verified.
 
-```sh
-bin/dev logs
-```
+Ports `80`, `1433`, and `5432` on `127.0.0.1` must be free. The gateway never publishes a non-loopback listener. Follow [Docker-only installation](docs/guides/docker-installation.md) for status, logs, coordinated upgrades, and rollback.
 
-Stop it only when no participating local project needs it:
-
-```sh
-bin/dev down
-```
-
-The wrapper also passes unrecognized arguments directly to `docker compose`, so
-`bin/dev config` and `bin/dev up --force-recreate` remain available.
-
-Port `80` on `127.0.0.1` must be free before starting. The gateway never binds to a non-loopback address.
+For automatic startup and last-consumer shutdown through a project's existing `bin/dev`, use the optional Ruby integration below. Raw Compose shutdown has no unused-gateway guard; do not put it in consumer teardown hooks.
 
 ## Install as a gem
 
@@ -62,13 +48,12 @@ Consuming projects do not need a gateway checkout. Add the released gem to
 their bundle and pin the compatible minor version:
 
 ```ruby
-gem "local-development-gateway", "~> 0.3.0"
+gem "local-development-gateway", "~> 0.4.0"
 ```
 
 Published gem: [`local-development-gateway`](https://rubygems.org/gems/local-development-gateway)
 
-The gem packages the gateway Compose file and pinned Traefik configuration.
-Its executable provides the same lifecycle commands:
+The gem packages the image-based Compose file and coordinates the shared gateway's lifecycle. Its executable provides these commands:
 
 ```sh
 bundle exec local-development-gateway up
@@ -79,7 +64,7 @@ bundle exec local-development-gateway down
 
 `local-development-gateway` uses the installed asset path, the
 `local-gateway` Compose project and network labels, and the pinned minimum Ruby
-version declared by the gem. Use `~> 0.3.0` for the private database alias API below.
+version declared by the gem. Version `0.4.0` includes the private database alias API below.
 The repository's `bin/dev` is only a thin wrapper around this executable API.
 
 ### Ruby API lifecycle
@@ -101,9 +86,13 @@ command that must not start a missing gateway, pass
 `ensure_running: false`; the block still runs and unused-gateway cleanup is
 attempted.
 
+Version 0.4.0 coordinates operations per user and Docker daemon. The last active consumer's cleanup stops only the routers, preserving the gateway network, passive database servers, and data. Update every cooperating consumer's gateway gem before relying on this coordination; old clients do not use its locks. Adopt the active/passive labels shown in the [consumer examples](docs/guides/consumer-developer-examples.md).
+
+For desktop-only access, use `local-development-gateway hold dbeaver`, then `local-development-gateway release dbeaver`. A named hold keeps the gateway running until deliberately released; it is not connection-triggered activation.
+
 ### Installed versus active versions
 
-`bundle exec local-development-gateway status` reports the invoking gem's installed version separately from each running shared service's active version, provenance, and mounted asset path. Healthy CLI `up`/`ensure` reuse also prints these diagnostics without recreating containers. Ruby callers can inspect `LocalDevelopmentGateway.status`; `ensure_running` still returns `:reused` for healthy services, and `ready?` remains a health check, not an artifact-version check.
+`bundle exec local-development-gateway status` reports the invoking gem's installed version separately from each running shared service's active version and provenance. Healthy CLI `up`/`ensure` reuse also prints these diagnostics without recreating containers. Ruby callers can inspect `LocalDevelopmentGateway.status`; `ensure_running` still returns `:reused` for healthy services, and `ready?` remains a health check, not an artifact-version check.
 
 For the database router, the active version comes from a record written by the Ruby process after loading the library at startup. For the HTTP gateway, it is the gateway configuration artifact version recorded in a container-creation label, not the Traefik image version. Missing records or labels are `unknown`. A legacy mount path containing a gem version is useful diagnostic evidence but does not prove which Ruby code or configuration the running process loaded. Neither version record is a content hash or proof that bind-mounted files have remained unchanged.
 
@@ -363,8 +352,10 @@ bundle exec ruby "$(bundle show syntax_tree)/exe/stree" check \
   lib/local_development_gateway/database_router/tds/*.rb \
   lib/local_development_gateway/version.rb \
   bin/dev \
+  bin/database-router \
   bin/local-development-gateway \
   examples/database-aliases/compose.rb \
+  examples/shared-databases/bin/dev \
   test/*.rb \
   test/database_router/*.rb \
   test/database_router/drivers/*.rb \
@@ -377,7 +368,7 @@ rake test
 
 Each participating project installs the published gem through its existing dependency and development-wrapper workflow. Its wrapper can start or reuse the shared gateway before starting application services. A primary checkout can use `http://example.localhost`, while a separate worktree uses `http://issue-123.example.localhost`. Routed API or mail services can use corresponding `api.` or `mail.` prefixes when the consumer supplies those labels.
 
-Application shutdown stops that checkout's services. A wrapper using the gateway lifecycle helper removes the shared gateway only when no other running consumer needs it. Hostname derivation and application lifecycle commands remain consumer responsibilities; the gem does not prescribe a particular application wrapper or rewrite its settings.
+Application shutdown stops that checkout's services. The coordinated lifecycle helper stops the shared routers only when no active consumer, pending operation, or named desktop hold remains; it preserves the shared network and database data. Hostname derivation and application lifecycle commands remain consumer responsibilities; the gem does not prescribe a particular application wrapper or rewrite its settings.
 
 The gateway owns the single browser port on `127.0.0.1:80`. Participating projects keep service ports internal to Docker and route browser traffic with explicit Traefik labels.
 
@@ -441,6 +432,13 @@ It mounts the Docker socket so it can discover labelled containers. A read-only 
 | Generated hostname returns `404` | Confirm the web container has the route labels and is attached to `local-gateway`. |
 | A project uses normal ports unexpectedly | Confirm the gateway container is running and has `local-gateway=true`. |
 | Authentication rejects a local URL | Check the consumer's configured application URL and identity-provider registration for the selected hostname. |
+
+## Release 0.4.0
+
+- Install from one Compose file with digest-pinned images and no host Ruby requirement for the routers.
+- Coordinate first-consumer startup, last-consumer shutdown, overlapping operations, and named desktop-client holds through the optional Ruby integration.
+- Preserve passive database servers, shared networking, and data during ordinary gateway shutdown.
+- Provide source-backed adoption designs for ELCC, WRAP, Travel Authorization, and Traditional Knowledge, plus a runnable shared-database example. Consumer migration and real-application RAM savings are not established by this release.
 
 ## Release 0.3.3
 

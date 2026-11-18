@@ -20,10 +20,12 @@ Gem::Specification.new do |spec|
     Dir[
       "README.md",
       "docker-compose.yml",
-      "docs/architecture/local-tcp-routing.md",
-      "config/traefik.yml",
+      "docs/**/*.md",
       "bin/local-development-gateway",
       "examples/database-aliases/*",
+      "examples/shared-databases/**/*",
+      "examples/shared-databases/app/.omp-verifier.json",
+      "examples/shared-databases/app/.oxlintrc.json",
       "lib/**/*.rb"
     ]
   spec.bindir = "bin"

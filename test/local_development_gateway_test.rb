@@ -6,6 +6,7 @@ require "rbconfig"
 require "rubygems/package"
 require "tmpdir"
 require "stringio"
+require "timeout"
 require "local_development_gateway"
 
 class LocalDevelopmentGatewayTest < Minitest::Test
@@ -23,7 +24,9 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       compose_error: nil,
       startup_error: nil,
       gateway_version: LocalDevelopmentGateway::VERSION,
-      router_version: LocalDevelopmentGateway::VERSION
+      router_version: LocalDevelopmentGateway::VERSION,
+      consumers: "",
+      inspection_error: nil
     )
       @network_labels = network_labels
       @gateway_ids = gateway_ids
@@ -36,12 +39,16 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       @startup_error = startup_error
       @gateway_version = gateway_version
       @router_version = router_version
+      @consumers = consumers
+      @inspection_error = inspection_error
       @calls = []
     end
 
     def call(*args, capture: true, env: {})
       @calls << { args: args, capture: capture, env: env }
       case args.first
+      when "info"
+        "test-daemon\n"
       when "network"
         if @network_labels.nil?
           raise LocalDevelopmentGateway::DockerError.new(args, "missing")
@@ -49,6 +56,11 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
         @network_labels
       when "ps"
+        raise @inspection_error if @inspection_error
+        if args.include?("label=local-gateway.lifecycle=consumer")
+          return @consumers
+        end
+
         if args.include?("--format")
           (args.include?("--all") ? @all_attached : @attached)
         elsif args.any? do |arg|
@@ -88,7 +100,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
         @router_version
       when "compose"
-        raise @compose_error if @compose_error && args.include?("down")
+        raise @compose_error if @compose_error && args.include?("stop")
         if @startup_error && args.include?("up")
           @gateway_ids = "gateway-id\n"
           raise @startup_error
@@ -104,6 +116,14 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     end
   end
 
+  def setup
+    @lifecycle_directory = Dir.mktmpdir
+  end
+
+  def teardown
+    FileUtils.remove_entry(@lifecycle_directory)
+  end
+
   def test_assets_are_packaged_with_the_gem
     spec =
       Gem::Specification.load(
@@ -115,7 +135,6 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
     assert status.success?, stderr
     contents = Gem::Package.new(gem_path).contents
-    assert_includes contents, "config/traefik.yml"
     assert_includes contents, "docker-compose.yml"
     assert_includes contents, "lib/local_development_gateway/database_router.rb"
   end
@@ -137,7 +156,6 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     script = <<~RUBY
       require "local_development_gateway"
       puts LocalDevelopmentGateway::COMPOSE_FILE
-      puts LocalDevelopmentGateway::TRAEFIK_CONFIG_FILE
     RUBY
 
     stdout, stderr, status =
@@ -149,9 +167,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       )
 
     assert status.success?, stderr
-    compose_file, traefik_file = stdout.lines.map(&:strip)
-    assert File.file?(compose_file)
-    assert File.file?(traefik_file)
+    assert File.file?(stdout.strip)
   end
 
   def test_rejects_a_network_with_the_wrong_compose_scope
@@ -170,7 +186,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     runner = FakeRunner.new(health: "starting\n")
 
     assert_equal :stopped, client(runner).stop_if_unused
-    assert(runner.calls.any? { |call| call[:args].include?("down") })
+    assert(runner.calls.any? { |call| call[:args].include?("stop") })
   end
 
   def test_reuses_a_ready_gateway
@@ -201,7 +217,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     CONTAINERS
 
     assert_equal :in_use, client(runner).stop_if_unused
-    refute(runner.calls.any? { |call| call[:args].include?("down") })
+    refute(runner.calls.any? { |call| call[:args].include?("stop") })
   end
 
   def test_stops_gateway_when_an_exited_attached_container_exists
@@ -226,7 +242,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     runner = FakeRunner.new
 
     assert_equal :stopped, client(runner).stop_if_unused
-    assert(runner.calls.any? { |call| call[:args].include?("down") })
+    assert(runner.calls.any? { |call| call[:args].include?("stop") })
   end
 
   def test_with_running_returns_the_block_result_and_stops_started_gateway
@@ -235,7 +251,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     result = client(runner).with_running { :result }
 
     assert_equal :result, result
-    assert(runner.calls.any? { |call| call[:args].include?("down") })
+    assert(runner.calls.any? { |call| call[:args].include?("stop") })
   end
 
   def test_with_running_reuses_a_ready_gateway_and_cleans_it_up
@@ -244,7 +260,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     client(runner).with_running { :result }
 
     refute(runner.calls.any? { |call| call[:args].include?("up") })
-    assert(runner.calls.any? { |call| call[:args].include?("down") })
+    assert(runner.calls.any? { |call| call[:args].include?("stop") })
   end
 
   def test_with_running_runs_without_starting_a_missing_gateway
@@ -263,7 +279,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
 
     assert_equal :result, result
     refute(runner.calls.any? { |call| call[:args].include?("up") })
-    assert(runner.calls.any? { |call| call[:args].include?("down") })
+    assert(runner.calls.any? { |call| call[:args].include?("stop") })
   end
 
   def test_with_running_preserves_a_block_exception_when_cleanup_fails
@@ -281,7 +297,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       end
 
     assert_same original_error, error
-    assert(runner.calls.any? { |call| call[:args].include?("down") })
+    assert(runner.calls.any? { |call| call[:args].include?("stop") })
   end
 
   def test_with_running_cleans_up_when_startup_fails
@@ -298,7 +314,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       end
 
     assert_same startup_error, error
-    assert(runner.calls.any? { |call| call[:args].include?("down") })
+    assert(runner.calls.any? { |call| call[:args].include?("stop") })
   end
 
   def test_with_running_preserves_a_gateway_used_by_another_project
@@ -308,7 +324,7 @@ class LocalDevelopmentGatewayTest < Minitest::Test
       CONTAINERS
 
     assert_equal(:result, client(runner).with_running { :result })
-    refute(runner.calls.any? { |call| call[:args].include?("down") })
+    refute(runner.calls.any? { |call| call[:args].include?("stop") })
   end
 
   def test_module_with_running_delegates_to_a_single_client
@@ -392,6 +408,219 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     refute(runner.calls.any? { |call| call[:args].include?("up") })
   end
 
+  def test_only_exact_passive_labels_allow_stopping
+    %w[passive Passive consumer unknown].each do |label|
+      runner = FakeRunner.new(attached: "db\tproject\tdb\t\t#{label}\n")
+
+      expected = label == "passive" ? :stopped : :in_use
+      assert_equal expected, client(runner).stop_if_unused
+      refute(runner.calls.any? { |call| call[:args].include?("down") })
+    end
+  end
+
+  def test_globally_labelled_consumer_keeps_gateway_running
+    runner = FakeRunner.new(consumers: "unattached-consumer\n")
+
+    assert_equal :in_use, client(runner).stop_if_unused
+    refute(runner.calls.any? { |call| call[:args].include?("stop") })
+  end
+
+  def test_inspection_failure_never_stops
+    failure =
+      LocalDevelopmentGateway::DockerError.new(["ps"], "inspection failed")
+    runner = FakeRunner.new(inspection_error: failure)
+
+    assert_raises(LocalDevelopmentGateway::DockerError) do
+      client(runner).stop_if_unused
+    end
+    refute(runner.calls.any? { |call| call[:args].include?("stop") })
+  end
+
+  def test_desktop_hold_is_durable_across_clients_and_idempotent
+    runner = FakeRunner.new
+
+    assert_equal :held, client(runner).hold("dbeaver")
+    assert_equal :held, client(runner).hold("dbeaver")
+    assert_equal :in_use, client(runner).stop_if_unused
+    assert_equal :stopped, client(runner).release("dbeaver")
+    assert_equal :stopped, client(runner).release("dbeaver")
+  end
+
+  def test_other_holds_and_containers_survive_release
+    runner = FakeRunner.new
+    client(runner).hold("dbeaver")
+    client(runner).hold("other")
+
+    assert_equal :in_use, client(runner).release("dbeaver")
+    active = FakeRunner.new(attached: "unknown\tproject\tweb\t\n")
+    assert_equal :in_use, client(active).release("other")
+  end
+
+  def test_rejects_unsafe_hold_names_before_starting
+    runner = FakeRunner.new
+    ["", "../escape", "a/b", "x" * 65, "-flag"].each do |name|
+      assert_raises(LocalDevelopmentGateway::Error) do
+        client(runner).hold(name)
+      end
+      assert_raises(LocalDevelopmentGateway::Error) do
+        client(runner).release(name)
+      end
+    end
+    assert_empty runner.calls
+  end
+
+  def test_nested_operations_do_not_deadlock_or_stop_outer_operation
+    runner = FakeRunner.new
+    gateway = client(runner)
+
+    result =
+      Timeout.timeout(5) do
+        gateway.with_running do
+          inner_result = gateway.with_running { :inner }
+          assert_equal :inner, inner_result
+          assert_equal :in_use, client(runner).stop_if_unused
+          :outer
+        end
+      end
+
+    assert_equal :outer, result
+    stop_calls = runner.calls.count { |call| call[:args].include?("stop") }
+    assert_equal 1, stop_calls
+  end
+
+  def test_parallel_pending_project_start_prevents_stop_without_blocking_down
+    runner = FakeRunner.new
+    entered = Queue.new
+    finish = Queue.new
+    worker =
+      Thread.new do
+        client(runner).with_running do
+          entered << true
+          finish.pop
+          :finished
+        end
+      end
+    Timeout.timeout(5) { entered.pop }
+
+    result =
+      client(runner).with_running(ensure_running: false) do
+        client(runner).stop_if_unused
+      end
+
+    assert_equal :in_use, result
+    refute(runner.calls.any? { |call| call[:args].include?("stop") })
+    finish << true
+    assert_equal :finished, Timeout.timeout(5) { worker.value }
+    stop_calls = runner.calls.count { |call| call[:args].include?("stop") }
+    assert_equal 1, stop_calls
+  ensure
+    finish << true if finish
+    if worker && !worker.join(5)
+      worker.kill
+      worker.join
+    end
+  end
+
+  def test_cli_propagates_child_exit_status_and_cleans_up
+    runner = FakeRunner.new
+
+    result =
+      LocalDevelopmentGateway::CLI.run(
+        ["with-running", "--", RbConfig.ruby, "-e", "exit 23"],
+        client: client(runner)
+      )
+
+    assert_equal 23, result
+    assert(runner.calls.any? { |call| call[:args].include?("stop") })
+  end
+
+  def test_cli_no_start_and_argument_validation
+    runner = FakeRunner.new
+    result =
+      LocalDevelopmentGateway::CLI.run(
+        ["with-running", "--no-start", "--", RbConfig.ruby, "-e", "exit 0"],
+        client: client(runner)
+      )
+
+    assert_equal 0, result
+    refute(runner.calls.any? { |call| call[:args].include?("up") })
+    assert_equal 1,
+                 LocalDevelopmentGateway::CLI.run(
+                   %w[with-running echo],
+                   client: client(runner),
+                   error: StringIO.new
+                 )
+    assert_equal 1,
+                 LocalDevelopmentGateway::CLI.run(
+                   ["hold"],
+                   client: client(runner),
+                   error: StringIO.new
+                 )
+  end
+
+  def test_cli_preserves_command_failure_when_cleanup_also_fails
+    failure =
+      LocalDevelopmentGateway::DockerError.new(["stop"], "cleanup failed")
+    runner = FakeRunner.new(compose_error: failure)
+
+    result =
+      LocalDevelopmentGateway::CLI.run(
+        ["with-running", "--", RbConfig.ruby, "-e", "exit 29"],
+        client: client(runner),
+        error: StringIO.new
+      )
+
+    assert_equal 29, result
+  end
+
+  def test_cli_propagates_signal_exit_status
+    runner = FakeRunner.new
+
+    result =
+      LocalDevelopmentGateway::CLI.run(
+        [
+          "with-running",
+          "--",
+          RbConfig.ruby,
+          "-e",
+          'Process.kill("TERM", Process.pid)'
+        ],
+        client: client(runner)
+      )
+
+    assert_equal 143, result
+    assert(runner.calls.any? { |call| call[:args].include?("stop") })
+  end
+
+  def test_cli_reports_missing_executable
+    runner = FakeRunner.new
+    executable = File.join(@lifecycle_directory, "nonexistent")
+
+    result =
+      LocalDevelopmentGateway::CLI.run(
+        ["with-running", "--", executable],
+        client: client(runner),
+        error: StringIO.new
+      )
+
+    assert_equal 127, result
+    assert(runner.calls.any? { |call| call[:args].include?("stop") })
+  end
+
+  def test_no_start_still_requires_safe_coordination_before_yielding
+    runner = FakeRunner.new
+    runner.define_singleton_method(:call) do |*args, **options|
+      args.first == "info" ? "" : super(*args, **options)
+    end
+
+    assert_raises(LocalDevelopmentGateway::Error) do
+      client(runner).with_running(ensure_running: false) do
+        flunk "must not yield without coordination"
+      end
+    end
+    refute(runner.calls.any? { |call| call[:args].include?("stop") })
+  end
+
   private
 
   def build_gem
@@ -411,7 +640,12 @@ class LocalDevelopmentGatewayTest < Minitest::Test
     LocalDevelopmentGateway::Client.new(
       runner: runner,
       timeout: 1,
-      sleeper: ->(_seconds) {}
+      sleeper: ->(_seconds) {},
+      lifecycle:
+        LocalDevelopmentGateway::Lifecycle.new(
+          runner: runner,
+          directory: @lifecycle_directory
+        )
     )
   end
 end
